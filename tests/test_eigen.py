@@ -419,7 +419,7 @@ def test_unstable_omega2_is_signed_with_finite_gradients():
     assert float(jax.grad(f)(rho)) == 0.0  # stable frequency of an unstable mode: finite, flat
     gamma = f(rho, growth=True)
     assert gamma == pytest.approx(float(ev.growth_rate[0]), rel=1e-10)
-    assert jax.grad(f)(rho, growth=True) == pytest.approx(-0.5 * gamma / rho, rel=1e-8)  # gamma ~ rho^(-1/2)
+    assert jax.grad(f)(rho, growth=True) == pytest.approx(float(-0.5 * gamma / rho), rel=1e-8)  # gamma ~ rho^(-1/2)
     omega2 = lambda x: jnp.stack([fax.eigen._hz(x), fax.eigen._growth(x)])  # noqa: E731
     for x in (-4.0, 4.0, 0.0):
         assert jnp.isfinite(jax.jacfwd(omega2)(x)).all() and jnp.isfinite(jax.jacrev(omega2)(x)).all()
@@ -476,7 +476,7 @@ def test_cluster_mean_first_derivative_at_degeneracy():
     D = jnp.array([[1.0, 0.5, 0.2], [0.5, 2.0, 0.1], [0.2, 0.1, 0.0]])
     mean = lambda t, a=0, b=2: fax.eigenvalue_mean(K + t * D, M, a, b)  # noqa: E731
     assert jax.grad(mean)(0.0) == pytest.approx(1.5, rel=1e-12)  # (D00 + D11) / 2
-    assert jax.grad(mean)(0.0) == pytest.approx((mean(1e-6) - mean(-1e-6)) / 2e-6, rel=1e-6)
+    assert jax.grad(mean)(0.0) == pytest.approx(float((mean(1e-6) - mean(-1e-6)) / 2e-6), rel=1e-6)
     mean = lambda t: fax.eigenvalue_mean(jnp.diag(jnp.array([1.0, 1.1, 3.0])) + t * D, M, 0, 2)  # noqa: E731
     fd = (mean(1e-3) - 2 * mean(0.0) + mean(-1e-3)) / 1e-6  # no repeated eigenvalue anywhere: second order works
-    assert jax.grad(jax.grad(mean))(0.0) == pytest.approx(fd, rel=1e-4)
+    assert jax.grad(jax.grad(mean))(0.0) == pytest.approx(float(fd), rel=1e-4)

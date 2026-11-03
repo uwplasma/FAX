@@ -107,7 +107,7 @@ def test_continuum_cost_is_continuous_across_the_helicity_cut():
     hard = cost(0.5 + 0.025, 1e-9)  # the (2, 0) term fully inside the old mask
     jump = cost(0.5 + 1e-6, 1e-9) - cost(0.5 - 1e-6, 1e-9)  # the hard mask adds the whole term when 2 iota passes 1
     assert jump > 0.9 * hard and abs(cost(0.5 + 1e-6) - cost(0.5 - 1e-6)) < 1e-7 * jump  # the smooth one does not
-    assert cost(0.5 + 0.025) == pytest.approx(hard, rel=1e-12) and 0.0 < cost(0.5 + 0.0125) < hard  # the smoothstep ramp
+    assert cost(0.5 + 0.025) == pytest.approx(float(hard), rel=1e-12) and 0.0 < cost(0.5 + 0.0125) < hard  # the smoothstep ramp
     grad = jax.grad(cost)
     assert abs(grad(0.5 + 1e-7) - grad(0.5 - 1e-7)) < 1e-4 * abs(grad(0.5 + 0.0125))  # C1 at the knot (FD there is only O(h))
     for iota in (0.49, 0.5 + 1e-3, 0.5 + 0.0125, 0.5 + 0.024, 0.526, 0.55):

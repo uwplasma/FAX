@@ -36,7 +36,7 @@ def test_continuum_cost_of_an_elliptic_torus():
     np.testing.assert_allclose(c[:, [2, -2], 0], e, atol=1e-12)
     assert (dm[2], n[0]) == (2, 0) and jnp.abs(c).sum() == pytest.approx(2 * e * 31)
     assert cost(1.5) == pytest.approx(31 * 2 * e**2 * (2 * 0.4) ** 2) and fax.continuum_cost(geo(1.5), (2, 0), 16, 8) < 1e-20
-    assert jax.grad(cost)(1.5) == pytest.approx((cost(1.5 + 1e-5) - cost(1.5 - 1e-5)) / 2e-5, rel=1e-7)
+    assert jax.grad(cost)(1.5) == pytest.approx(float((cost(1.5 + 1e-5) - cost(1.5 - 1e-5)) / 2e-5), rel=1e-7)
 
 
 def test_boundary_parameters_accept_tuples_and_reject_ambiguous_strings():

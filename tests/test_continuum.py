@@ -67,7 +67,7 @@ def test_elliptic_two_mode_gap_has_full_width_two_f0_c():
     np.testing.assert_allclose(width, 2 * f0 * c, rtol=1e-6)
     np.testing.assert_allclose(center, f0, rtol=1e-6)
     f_a = 2.7 / (5.5 * jnp.sqrt(MU0 * rho)) / (2 * jnp.pi)
-    assert fax.continuum_cost(geo, (0, 0)) / 2 == pytest.approx(jnp.sum((width / f_a) ** 2), rel=1e-2)  # +-(dm, n) twice
+    assert fax.continuum_cost(geo, (0, 0)) / 2 == pytest.approx(float(jnp.sum((width / f_a) ** 2)), rel=1e-2)  # +-(dm, n) twice
 
 
 def test_radial_derivative_on_irregular_grids():
@@ -111,7 +111,7 @@ def test_read_boozmn_orientation_follows_named_dimensions(tmp_path, shape):
 
 def test_circular_torus_is_traceable_and_frequency_scales_with_B0():
     sum_f = lambda b: fax.continuum(fax.circular_torus(B0=b), [[1.0, 1.0]], 3.4e-8).sum()  # noqa: E731
-    assert jax.grad(sum_f)(3.0) == pytest.approx(sum_f(3.0) / 3.0, rel=1e-10)  # f ~ G/R = B0
+    assert jax.grad(sum_f)(3.0) == pytest.approx(float(sum_f(3.0) / 3.0), rel=1e-10)  # f ~ G/R = B0
     two = lambda b: fax.continuum(fax.circular_torus(B0=b), [[1.0, 1.0], [2.0, 1.0]], 3.4e-8).sum()  # noqa: E731
     assert jax.jit(two)(3.0) == pytest.approx(two(3.0))  # H = 1 under jit hits an XLA:CPU FFT layout bug in jax 0.11
 

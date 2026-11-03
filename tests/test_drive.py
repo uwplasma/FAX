@@ -119,7 +119,7 @@ def test_gradients_match_finite_differences(arg):
     f = lambda a: tae_gamma(*[200.0, 1.0, 4.0e5][:arg], a, *[200.0, 1.0, 4.0e5][arg + 1 :])  # noqa: E731
     x0 = [200.0, 1.0, 4.0e5][arg]
     h = 1e-4 * x0
-    assert jax.grad(f)(x0) == pytest.approx((f(x0 + h) - f(x0 - h)) / (2 * h), rel=1e-5)
+    assert jax.grad(f)(x0) == pytest.approx(float((f(x0 + h) - f(x0 - h)) / (2 * h)), rel=1e-5)
 
 
 def test_geometry_and_mode_gradients():
@@ -133,7 +133,7 @@ def test_geometry_and_mode_gradients():
     grad = jax.grad(lambda p: f(*p))((ITPA, TAE))
     ad = sum(jnp.vdot(a, b) for a, b in zip(jax.tree_util.tree_leaves(grad), jax.tree_util.tree_leaves(du), strict=True))
     fd = (f(*move(1e-5)) - f(*move(-1e-5))) / 2e-5
-    assert ad == pytest.approx(fd, rel=1e-5)
+    assert ad == pytest.approx(float(fd), rel=1e-5)
 
 
 def test_slowing_down_is_normalized_with_its_smoothed_edge():
@@ -152,7 +152,7 @@ def test_slowing_down_is_normalized_with_its_smoothed_edge():
 def test_duplicated_toroidal_samples_leave_the_drive_unchanged():
     """The passing boundary uses the exact ``max |B|``: ``nzeta`` identical copies of an axisymmetric surface agree to 1e-10."""
     gam = [fax.growth_rate(4e5, TAE, ITPA, HARM, fax.FastIons(koenies_density(), 200e3), RHO, helical=0, nzeta=nz) for nz in (1, 4, 16)]
-    assert gam[0] == pytest.approx(gam[1], rel=1e-10) and gam[0] == pytest.approx(gam[2], rel=1e-10)
+    assert gam[0] == pytest.approx(np.asarray(gam[1]), rel=1e-10) and gam[0] == pytest.approx(np.asarray(gam[2]), rel=1e-10)
 
 
 def test_slowing_down_gradient_is_finite():
@@ -218,7 +218,7 @@ def test_quasi_helical_relabelling_leaves_the_drive_unchanged(current, n):
     qh = relabel(tok, n)
     g0 = drive(tok, harm, helical=0, nzeta=1)
     g1 = drive(qh, tuple((m, k + m * n) for m, k in harm), helical=3)
-    assert g1 == pytest.approx(g0, rel=1e-4)
+    assert g1 == pytest.approx(np.asarray(g0), rel=1e-4)
     flat = fax.FastIons(density=1e17 * jnp.mean(jnp.exp(-8 * S40)), temperature_ev=200e3)
     assert abs(g0 / drive(tok, harm, flat, helical=0, nzeta=1) - 1) > 0.2
 
@@ -226,7 +226,7 @@ def test_quasi_helical_relabelling_leaves_the_drive_unchanged(current, n):
 def test_axisymmetric_limit_ignores_toroidal_sidebands():
     """An axisymmetric field viewed as three field periods with helical sidebands is the ``helical = 0``, ``nzeta = 1`` result."""
     tok, harm = torus(), ((10, 6), (11, 6))
-    assert drive(replace(tok, nfp=3), harm, helical=1) == pytest.approx(drive(tok, harm, helical=0, nzeta=1), rel=1e-9)
+    assert drive(replace(tok, nfp=3), harm, helical=1) == pytest.approx(np.asarray(drive(tok, harm, helical=0, nzeta=1)), rel=1e-9)
 
 
 @pytest.mark.parametrize("angle", ["theta", "zeta"])
@@ -237,7 +237,7 @@ def test_negative_iota_and_n_reversal_describe_the_same_device(angle):
     harm = ((10, 6 + 20), (11, 6 + 22))
     flipped = tuple((-m, n) for m, n in harm) if angle == "theta" else tuple((m, -n) for m, n in harm)
     (p0, g0), (p1, g1) = (drive(g, h, helical=3, resolved=True) for g, h in ((qh, harm), (mirror(qh, angle), flipped)))
-    assert jnp.sum(g1) == pytest.approx(jnp.sum(g0), rel=1e-12)
+    assert jnp.sum(g1) == pytest.approx(float(jnp.sum(g0)), rel=1e-12)
     d0 = dict(zip(map(tuple, p0.tolist()), g0.tolist(), strict=True))
     d1 = dict(zip(map(tuple, p1.tolist()), g1.tolist(), strict=True))
     iota = float(qh.iota[NS // 2])
@@ -256,12 +256,12 @@ def test_amplitude_phase_density_and_passivity():
     qh, harm = relabel(torus(), 2), ((10, 6 + 20), (11, 6 + 22))
     base = drive(qh, harm, helical=3)
     c = 3.7 * jnp.exp(0.9j)
-    assert drive(qh, harm, phi=c * MODE.astype(complex), helical=3) == pytest.approx(base, rel=1e-12)
+    assert drive(qh, harm, phi=c * MODE.astype(complex), helical=3) == pytest.approx(np.asarray(base), rel=1e-12)
     twist = MODE.astype(complex) * jnp.array([1.0, jnp.exp(1.2j)])
     assert abs(drive(qh, harm, phi=twist, helical=3) / base - 1) > 1e-2
     ions = fax.FastIons(density=1e17 * jnp.exp(-8 * S40), temperature_ev=200e3)
     scaled = replace(ions, density=3.0 * ions.density)
-    assert drive(qh, harm, scaled, helical=3) == pytest.approx(3 * base, rel=1e-12)
+    assert drive(qh, harm, scaled, helical=3) == pytest.approx(np.asarray(3 * base), rel=1e-12)
     for kind in ("maxwellian", "slowing_down"):
         uniform = fax.FastIons(density=1e17, temperature_ev=200e3, birth_ev=300e3, critical_ev=100e3, kind=kind)
         assert all(drive(qh, harm, uniform, omega=w, helical=3) < 0 for w in (2e5, 4e5, 8e5))
