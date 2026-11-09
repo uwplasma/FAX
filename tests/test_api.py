@@ -88,6 +88,17 @@ def test_cli_run_without_plot_writes_results_only(tmp_path, capsys):
     assert not list((tmp_path / "out").glob("*.png"))
 
 
+def test_cli_cache_flag_sets_the_compilation_cache_dir(tmp_path):
+    case = tmp_path / "case.toml"
+    case.write_text('[run]\noutput = "out"\nntheta = 32\nnzeta = 4\n')
+    try:
+        assert main(["run", str(case), "--cache", str(tmp_path / "jit")]) == 0
+        assert jax.config.jax_compilation_cache_dir == str(tmp_path / "jit")
+    finally:
+        jax.config.update("jax_compilation_cache_dir", None)
+        jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+
+
 def test_geometry_source_is_validated():
     with pytest.raises(ValueError, match="geometry.source must be one of"):
         fax.io.geometry(fax.load({"geometry": {"source": "gs2"}}))
