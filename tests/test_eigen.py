@@ -1,5 +1,6 @@
 """Global operator gates: continuum accumulation, AE3D CTOK parity, Könies ITPA TAE, gradients."""
 
+import dataclasses
 import itertools
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +25,7 @@ from fax.eigen import (
     targeted_eigenpairs,
     targeted_eigenvalues,
 )
-from fax.geometry import jacobian_check, surface_grid
+from fax.geometry import _d_ds, jacobian_check, surface_grid
 
 DATA = Path(__file__).parent / "data"
 
@@ -83,12 +84,11 @@ def _ae3d_blocks(field, prof, h, shear=True, metric_mask=None, iota_only=False):
     metric = np.stack([np.stack([gss, gst, gsz], -1), np.stack([gst, gtt, gtz], -1), np.stack([gsz, gtz, gzz], -1)], -2)
     if metric_mask is not None:
         metric = metric * np.array(metric_mask, float)
-    theta, zeta = np.meshgrid(2 * np.pi * np.arange(T) / T, 2 * np.pi * np.arange(nz) / nz, indexing="ij")
     dB = np.stack([0 * Bs if iota_only else Bs, Bt, Bz], -1)
-    g = SimpleNamespace(theta=theta, zeta=zeta, B=B, dB=dB, sqrt_g=rj, metric=metric)
+    g = SimpleNamespace(B=B, dB=dB, sqrt_g=rj, metric=metric)
     inertia, bending = _modes(g, iota, iota_s if shear else 0 * iota_s, D, 0 * D_s if iota_only else D_s, h)
     w, rho = jnp.abs(rj), 2 * 1.67e-27 * 1e19
-    return _coefficients(metric, w, *bending), _coefficients(metric, MU0 * rho * w / B**2, *inertia)
+    return _coefficients(h, metric, w, bending), _coefficients(h, metric, MU0 * rho * w / B**2, inertia)
 
 
 def test_ae3d_v31_blocks_and_energy_on_identical_inputs():
@@ -160,6 +160,74 @@ def test_ae3d_v31_blocks_and_energy_on_identical_inputs():
         errors["FAX"].append(0.5 * (y.ravel() @ F_fax @ y.ravel()) / energy - 1)
         errors["AE3D"].append(0.5 * (y.ravel() @ F_ae3d @ y.ravel()) / cF / energy - 1)
     assert np.abs(errors["FAX"]).max() < 5e-3 and np.abs(errors["AE3D"]).max() > 0.05 and np.abs(errors["AE3D"]).min() > 5e-3
+
+
+def _einsum_matrices(geo, harmonics, density, ntheta, nzeta, finite_beta):
+    """The direct ``(H, H, T, Z)`` einsum assembly that the FFT one replaced: every surface average summed on the grid."""
+    h, g = jnp.asarray(harmonics, float), surface_grid(geo, ntheta, nzeta)
+    m, n = h[:, 0, None, None], h[:, 1, None, None]
+    e = jnp.exp(1j * (m * g.theta - n * g.zeta))
+    zero = jnp.zeros_like(e)
+    r = lambda a: a[:, None, None, None]  # noqa: E731
+    D, (iota_s, D_s) = geo.G + geo.iota * geo.I, _d_ds(jnp.stack([geo.iota, geo.G + geo.iota * geo.I], 1), geo.s).T
+    k = r(geo.iota) * m - n
+    c = 1j * k * g.B[:, None] / r(D)
+    c_s = 1j * (r(iota_s) * m * g.B[:, None] + k * (g.dB[:, None, ..., 0] - g.B[:, None] * r(D_s / D))) / r(D)
+    c_t, c_z = 1j * k * g.dB[:, None, ..., 1] / r(D), 1j * k * g.dB[:, None, ..., 2] / r(D)
+    inertia = jnp.stack([e, zero, zero], -1), 1j * jnp.stack([zero, m * e, -n * e], -1)
+    bending = jnp.stack([c * e, 0 * c, 0 * c], -1), jnp.stack([c_s, c_t + 1j * m * c, c_z - 1j * n * c], -1) * e[..., None]
+
+    def coefficients(tensor, w, X0, X1, Y0=None, Y1=None):
+        Y0, Y1 = (X0, X1) if Y0 is None else (Y0, Y1)
+        shape = jnp.broadcast_shapes(*map(jnp.shape, (X0, X1, Y0, Y1)), (w.shape[0], 1, *w.shape[1:], 3))
+        X0, X1, Y0, Y1 = (jnp.broadcast_to(a, shape) for a in (X0, X1, Y0, Y1))
+        gw = tensor * (w / (ntheta * nzeta))[..., None, None]
+        dot = lambda P, Q: jnp.einsum("shtzi,stzij,sqtzj->shq", jnp.conj(P), gw, Q)  # noqa: E731
+        H = lambda a: jnp.conj(jnp.swapaxes(a, -1, -2))  # noqa: E731
+        A, D = dot(X0, Y0), dot(X1, Y1)
+        return 0.5 * (A + H(A)), 0.5 * (dot(X0, Y1) + H(dot(X1, Y0))), 0.5 * (D + H(D))
+
+    rho, volume = jnp.broadcast_to(jnp.asarray(density, float), geo.s.shape), jnp.abs(g.sqrt_g)
+    pairs = ((volume, bending), (r(MU0 * rho)[:, 0] * volume / g.B**2, inertia))
+    F, G = (_assemble(geo.s, h[:, 0] == 0, *coefficients(g.metric, w, *x)) for w, x in pairs)
+    if finite_beta:
+        p_s, B_s, sigma = equilibrium_currents(geo, g)
+        Bc = jnp.stack([B_s, *(jnp.broadcast_to(r(a)[:, 0], B_s.shape) for a in (geo.I, geo.G))], -1)
+        eps = jnp.array([[[0, 0, 0], [0, 0, 1], [0, -1, 0]], [[0, 0, -1], [0, 0, 0], [1, 0, 0]], [[0, 1, 0], [-1, 0, 0], [0, 0, 0]]])
+        kappa = jnp.concatenate([r(p_s)[:, 0, ..., None] + g.B[..., None] * g.dB[..., :1], g.B[..., None] * g.dB[..., 1:]], -1)
+        outer = jnp.cross(kappa / g.B[..., None] ** 2, Bc)[..., :, None] * jnp.cross(jnp.array([1.0, 0, 0]), Bc)[..., None, :]
+        for tensor, w, x in (
+            (jnp.einsum("ijk,...k->...ij", eps, Bc), sigma * jnp.sign(g.sqrt_g) / g.B, (*inertia, *bending)),
+            (outer, -2 * r(p_s)[:, 0] * volume / (g.B**4 * g.sqrt_g**2), (*inertia, *inertia)),
+        ):
+            F = jax.tree_util.tree_map(jnp.add, F, _assemble(geo.s, h[:, 0] == 0, *coefficients(tensor, w, *x)))
+    return F, G
+
+
+def _functional(assemble, geo, h, grid, finite_beta, p):
+    """A fixed linear functional of ``(F, G)`` for ``iota -> p[0] iota`` and ``rho -> p[1] rho``."""
+    F, G = assemble(dataclasses.replace(geo, iota=geo.iota * p[0]), h, fax.mass_density(1e19, 2.0) * p[1], *grid, finite_beta)
+    w = jnp.cos(jnp.arange(F.diag.size)).reshape(F.diag.shape)
+    return sum(jnp.real(jnp.sum(w * A.diag) + jnp.sum(w[1:] * A.upper)) for A in (F, G))
+
+
+@pytest.mark.parametrize("finite_beta", [False, True])
+def test_fft_assembly_equals_the_direct_einsum_and_its_gradients(finite_beta):
+    """F and G, without and with the finite-beta terms, agree to 1e-13 with the direct einsum on CTOK and on a Könies case with
+    pressure; so does the ``jax.grad`` of a fixed linear functional of ``(F, G)`` wrt a scale of ``iota`` and of ``rho``."""
+    kon = konies(24)
+    kon = fax.circular_torus(s=kon.s, major_radius=10.0, B0=3.0, iota=kon.iota, epsilon_B=0.1, pressure=[7.17e3, -6.811e3, -3.585e2])
+    fft = lambda geo, h, rho, nt, nz, fb: global_matrices(geo, h, rho, nt, nz, finite_beta=fb)  # noqa: E731
+    p = jnp.array([1.0, 1.0])
+    for geo, h, grid in (
+        (fax.read_boozmn(DATA / "boozmn_ctok.nc"), fax.mode_family(2, 12), (32, 4)),
+        (kon, fax.mode_family(6, 9, 3), (24, 4)),
+    ):
+        new, old = (jax.tree_util.tree_leaves(f(geo, h, 1e-8, *grid, finite_beta)) for f in (fft, _einsum_matrices))
+        for a, b in zip(new, old, strict=True):
+            assert float(jnp.linalg.norm(a - b) / jnp.linalg.norm(b)) < 1e-13
+        ga, gb = (jax.grad(_functional, 5)(f, geo, h, grid, finite_beta, p) for f in (fft, _einsum_matrices))
+        np.testing.assert_allclose(ga, gb, rtol=1e-12)
 
 
 def test_konies_tae_frequency_and_convergence():
@@ -361,8 +429,8 @@ def test_conventions_and_geometry_diagnostics_on_ctok():
     np.testing.assert_allclose(Bz, B**2 / D, rtol=2e-3)  # B^zeta = B.grad(zeta) = B^2 / (G + iota I) > 0
     h = fax.mode_family(2, 4)  # exp(i(m theta - n zeta)): (B.grad e) / (i B e) = (iota m - n) B / (G + iota I)
     zeros = jnp.zeros_like(geo.s)
-    bending = _modes(g, geo.iota, zeros, jnp.asarray(D[:, 0, 0]), zeros, h)[1][0]  # f' part of grad(u_j), s component: c_j e_j
-    c = np.asarray(bending[..., 0] / jnp.exp(1j * (h[:, 0, None, None] * g.theta - h[:, 1, None, None] * g.zeta)))
+    q, phi = _modes(g, geo.iota, zeros, jnp.asarray(D[:, 0, 0]), zeros, h)[1]  # f' part of grad(u_j), s component: c_j e_j
+    c = np.asarray(q[0, :, :, 0, None, None] * phi[:, None, 0, ..., 0])
     kpar = (
         np.asarray(geo.iota)[:, None, None, None] * np.asarray(h[:, 0])[None, :, None, None] - np.asarray(h[:, 1])[None, :, None, None]
     ) * (Bz / B)[:, None]

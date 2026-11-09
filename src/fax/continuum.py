@@ -57,6 +57,17 @@ def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     return lam, tri(y, 2)  # L^-H y
 
 
+def angle_mean(f: jax.Array, h: jax.Array) -> jax.Array:
+    """``<f exp(i(dm theta - dn zeta))>`` for a real ``f`` of shape ``(..., theta, zeta)`` and all harmonic pairs, shape ``(..., H, H)``
+    (row ``i`` conjugated, ``dm = m_j - m_i``): the DFT of ``f`` at ``(-dm, dn)``, one real FFT instead of an ``(H, H, T, Z)`` tensor."""
+    T, Z = f.shape[-2:]
+    dm, dn = (h[None, :, 0] - h[:, None, 0]).astype(int), (h[None, :, 1] - h[:, None, 1]).astype(int)
+    a, b = -dm % T, dn % Z
+    hi = b > Z // 2  # beyond the half spectrum of a real f: F[a, b] = conj(F[-a, -b])
+    F = jnp.fft.rfft2(f)[..., jnp.where(hi, -a % T, a), jnp.where(hi, Z - b, b)]
+    return jnp.where(hi, jnp.conj(F), F) / (T * Z)
+
+
 def continuum_matrices(geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32) -> Matrices:
     """Assemble the per-surface continuum matrices with FFT-exact angle quadrature.
 
@@ -73,11 +84,8 @@ def continuum_matrices(geo: Geometry, harmonics: Any, density: Any, ntheta: int 
     weight = jnp.abs(grid.jacobian) * grid.grad_s2 / grid.B**2
     a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / (geo.G + geo.iota * geo.I)[:, None]  # k_j = a_j |B|
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
-    # <f exp(i(dm theta - dn zeta))> is the DFT of f at (-dm, dn): one FFT per surface instead of an (H, H, T, Z) tensor.
-    dm, dn = (h[None, :, 0] - h[:, None, 0]).astype(int), (h[None, :, 1] - h[:, None, 1]).astype(int)
-    mean = lambda f: jnp.fft.fft2(f)[:, -dm % ntheta, dn % nzeta] / (ntheta * nzeta)  # noqa: E731
-    K = a[:, :, None] * a[:, None, :] * mean(weight * grid.B**4 / MU0)
-    M = rho[:, None, None] * mean(weight)
+    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h)
+    M = rho[:, None, None] * angle_mean(weight, h)
     herm = lambda A: 0.5 * (A + jnp.conj(jnp.swapaxes(A, -1, -2)))  # noqa: E731
     return Matrices(herm(K), herm(M))
 

@@ -35,9 +35,10 @@ from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import solvax
 
-from .continuum import MU0, generalized_eigh
+from .continuum import MU0, angle_mean, generalized_eigh
 from .geometry import Geometry, _d_ds, surface_grid
 
 
@@ -90,11 +91,11 @@ def global_matrices(
     g = surface_grid(geo, ntheta, nzeta)
     D, (iota_s, D_s) = geo.G + geo.iota * geo.I, _d_ds(jnp.stack([geo.iota, geo.G + geo.iota * geo.I], 1), geo.s).T
     inertia, bending = _modes(g, geo.iota, iota_s, D, D_s, h)
-    r = lambda a: a[:, None, None, None]  # noqa: E731 - per-surface value -> (S, H, T, Z)
+    r = lambda a: a[:, None, None, None]  # noqa: E731 - per-surface value -> (S, 1, T, Z)
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
     volume = jnp.abs(g.sqrt_g)
     pairs = ((volume, bending), (r(MU0 * rho)[:, 0] * volume / g.B**2, inertia))
-    F, G = (_assemble(geo.s, h[:, 0] == 0, *_coefficients(g.metric, w, *x)) for w, x in pairs)
+    F, G = (_assemble(geo.s, h[:, 0] == 0, *_coefficients(h, g.metric, w, x)) for w, x in pairs)
     if not finite_beta:
         return F, G
     p_s, B_s, sigma = equilibrium_currents(geo, g)
@@ -107,28 +108,32 @@ def global_matrices(
     )
     outer = jnp.cross(kappa, Bc)[..., :, None] * jnp.cross(jnp.array([1.0, 0, 0]), Bc)[..., None, :]
     terms = (
-        (cross, sigma * jnp.sign(g.sqrt_g) / g.B, (*inertia, *bending)),
-        (outer, -2 * r(p_s)[:, 0] * volume / (g.B**4 * g.sqrt_g**2), (*inertia, *inertia)),
+        (cross, sigma * jnp.sign(g.sqrt_g) / g.B, inertia, bending),
+        (outer, -2 * r(p_s)[:, 0] * volume / (g.B**4 * g.sqrt_g**2), inertia, inertia),
     )
-    for tensor, w, x in terms:
-        F = jax.tree_util.tree_map(jnp.add, F, _assemble(geo.s, h[:, 0] == 0, *_coefficients(tensor, w, *x)))
+    for tensor, w, x, y in terms:
+        F = jax.tree_util.tree_map(jnp.add, F, _assemble(geo.s, h[:, 0] == 0, *_coefficients(h, tensor, w, x, y)))
     return F, G
 
 
 def _modes(g: Any, iota: jax.Array, iota_s: jax.Array, D: jax.Array, D_s: jax.Array, h: jax.Array) -> tuple[tuple, tuple]:
-    """Covariant ``(s, theta, zeta)`` components, as ``(f' part, f part)``, of ``grad(f e_j)`` (inertia) and ``grad(u_j)``
-    (bending) for every harmonic. ``g`` is a :class:`~fax.geometry.SurfaceGrid`; ``D = G + iota I`` and ``iota``, ``D`` are
-    per surface with radial derivatives ``iota_s``, ``D_s``; ``u_j = c_j e_j f`` with ``c_j = i (iota m - n) B / D``."""
-    m, n = h[:, 0, None, None], h[:, 1, None, None]
-    e = jnp.exp(1j * (m * g.theta - n * g.zeta))
-    zero = jnp.zeros_like(e)
-    r = lambda a: a[:, None, None, None]  # noqa: E731 - per-surface value -> (S, H, T, Z)
+    """``grad(f e_j) = f' X0 + f X1`` (inertia) and ``grad(u_j)`` (bending; ``u_j = c_j e_j f``, ``c_j = i (iota m - n) B / D``,
+    ``D = G + iota I``, with radial derivatives ``iota_s``, ``D_s``) as covariant ``(s, theta, zeta)`` components
+    ``e_j sum_p q_p(j) phi_p``. Each result is ``(q, phi)``: complex ``q`` of shape ``(2, S, H, P)`` (slot 0 the ``f'`` part,
+    slot 1 the ``f`` part) and real fields ``phi`` of shape ``(S, P, T, Z, 3)``. ``g`` is a :class:`~fax.geometry.SurfaceGrid`."""
+    m, n = h[None, :, 0], h[None, :, 1]
+    r = lambda a: a[:, None]  # noqa: E731 - per-surface value -> (S, 1)
+    ax = lambda f, i: f[..., None] * jnp.eye(3)[i]  # noqa: E731 - scalar field along covariant axis i
     k = r(iota) * m - n
-    c = 1j * k * g.B[:, None] / r(D)
-    c_s = 1j * (r(iota_s) * m * g.B[:, None] + k * (g.dB[:, None, ..., 0] - g.B[:, None] * r(D_s / D))) / r(D)
-    c_t, c_z = 1j * k * g.dB[:, None, ..., 1] / r(D), 1j * k * g.dB[:, None, ..., 2] / r(D)
-    inertia = jnp.stack([e, zero, zero], -1), 1j * jnp.stack([zero, m * e, -n * e], -1)
-    bending = jnp.stack([c * e, 0 * c, 0 * c], -1), jnp.stack([c_s, c_t + 1j * m * c, c_z - 1j * n * c], -1) * e[..., None]
+    kD, z = 1j * k / r(D), jnp.zeros_like(k)
+    one = jnp.ones_like(g.B)
+    inertia = (
+        jnp.stack([jnp.stack([1 + z, z, z], -1), 1j * jnp.stack([z, m + z, -n + z], -1)]),
+        jnp.stack([ax(one, 0), ax(one, 1), ax(one, 2)], 1),
+    )
+    q0, q1 = jnp.stack([kD, z, z, z], -1), jnp.stack([1j * r(iota_s / D) * m, kD, m * k / r(D), n * k / r(D)], -1)
+    f1 = jnp.stack([g.dB[..., 0] - g.B * r(D_s / D)[..., None], g.dB[..., 1], g.dB[..., 2]], -1)
+    bending = jnp.stack([q0, q1]), jnp.stack([ax(g.B, 0), f1, -ax(g.B, 1), ax(g.B, 2)], 1)
     return inertia, bending
 
 
@@ -167,17 +172,23 @@ def force_balance_residual(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> 
     return jnp.sqrt(((B_s - embedded) ** 2).mean((1, 2)) / (g.B**2).mean((1, 2)))
 
 
-def _coefficients(metric: jax.Array, w: jax.Array, X0: Any, X1: Any, Y0: Any = None, Y1: Any = None) -> tuple[jax.Array, ...]:
-    """Hermitian parts of the surface averages ``<w X_a* . metric . Y_b>`` (``Y = X`` by default)
-    for the ``f' f'``, ``f' f`` and ``f f`` products, shape ``(S, H, H)``."""
-    Y0, Y1 = (X0, X1) if Y0 is None else (Y0, Y1)
-    shape = jnp.broadcast_shapes(*map(jnp.shape, (X0, X1, Y0, Y1)), (w.shape[0], 1, *w.shape[1:], 3))
-    X0, X1, Y0, Y1 = (jnp.broadcast_to(a, shape) for a in (X0, X1, Y0, Y1))
-    gw = metric * (w / (w.shape[-1] * w.shape[-2]))[..., None, None]
-    dot = lambda P, Q: jnp.einsum("shtzi,stzij,sqtzj->shq", jnp.conj(P), gw, Q)  # noqa: E731
+def _coefficients(h: jax.Array, tensor: jax.Array, w: jax.Array, X: Any, Y: Any = None) -> tuple[jax.Array, ...]:
+    """Hermitian parts of the surface averages ``<w X_a* . tensor . Y_b>`` of :func:`_modes` pairs for the ``f' f'``, ``f' f`` and
+    ``f f`` products, shape ``(S, H, H)``; ``Y = X`` (a symmetric ``tensor``) by default. With ``X = e_a sum_p q_p phi_p`` this is
+    ``sum_pq conj(q_p(a)) q_q(b) <conj(e_a) e_b psi_pq>``, ``psi_pq = w phi_p . tensor . phi_q``: one DFT per pair."""
+    (qx, px), (qy, py) = X, X if Y is None else Y
+    P = px.shape[1]
+    pi, qi = np.triu_indices(P) if Y is None else np.indices((P, py.shape[1])).reshape(2, -1)  # psi_pq = psi_qp if symmetric
+    back = np.empty((P, py.shape[1]), int)
+    back[pi, qi] = np.arange(pi.size)
+    if Y is None:
+        back[qi, pi] = back[pi, qi]
+    v = jnp.sum((tensor * w[..., None, None])[:, None] * py[:, :, :, :, None, :], -1)  # tensor . phi_q, shape (S, Q, T, Z, 3)
+    psi = jnp.sum(px[:, :, None] * v[:, None], -1)[:, pi, qi]  # one product per pair
+    mean = angle_mean(psi, h)[:, back]  # (S, P, Q, H, H)
+    A, C, Cp, D = (jnp.einsum("sip,sjq,spqij->sij", jnp.conj(qx[a]), qy[b], mean) for a, b in ((0, 0), (0, 1), (1, 0), (1, 1)))
     H = lambda a: jnp.conj(jnp.swapaxes(a, -1, -2))  # noqa: E731
-    A, D = dot(X0, Y0), dot(X1, Y1)
-    return 0.5 * (A + H(A)), 0.5 * (dot(X0, Y1) + H(dot(X1, Y0))), 0.5 * (D + H(D))
+    return 0.5 * (A + H(A)), 0.5 * (C + H(Cp)), 0.5 * (D + H(D))
 
 
 def _assemble(s: jax.Array, flat: jax.Array, A: jax.Array, Bm: jax.Array, D: jax.Array) -> Blocks:
