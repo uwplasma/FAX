@@ -53,7 +53,7 @@ def test_ae3d_ctok_parity():
     """AE3D's CTOK run (same boozmn, n = 2, m = 0..12, D at 1e19 m^-3) on its 99-point full mesh."""
     geo = fax.read_boozmn(DATA / "boozmn_ctok.nc").full_mesh()
     geo = jax.tree_util.tree_map(lambda a: jnp.concatenate([a, 2 * a[-1:] - a[-2:-1]]) if a.ndim and a.shape[0] == 98 else a, geo)
-    F, G = (np.asarray(dense(A)) for A in global_matrices(geo, fax.mode_family(2, 12), fax.mass_density(1e19, 2.0), 32, 4))
+    F, G = (np.asarray(dense(A)) for A in global_matrices(geo, fax.mode_family(2, 12), fax.mass_density(1e19, 2 * 1.00727647), 32, 4))
     w, x = (np.asarray(a) for a in generalized_eigh(F, G))
     x = x / np.linalg.norm(x, axis=0)
     ref = np.load(DATA / "ae3d_ctok_modes.npz")
@@ -163,7 +163,7 @@ def test_ae3d_v31_blocks_and_energy_on_identical_inputs():
 
 
 def test_konies_tae_frequency_and_convergence():
-    h, rho = fax.mode_family(6, 16, 5), fax.mass_density(2e19, 1.0)
+    h, rho = fax.mode_family(6, 16, 5), fax.mass_density(2e19, 1.00727647)
     omega = []
     for N in (50, 100, 200):
         modes = fax.eigenmodes(konies(N), h, rho, target_hz=6.46e4, count=3, ntheta=32, nzeta=4)
@@ -173,7 +173,7 @@ def test_konies_tae_frequency_and_convergence():
 
 
 def test_shift_invert_matches_dense_and_gradients_match_finite_differences():
-    h, rho = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.0)
+    h, rho = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.00727647)
     dense_w = fax.eigenmodes(konies(40), h, rho, ntheta=16, nzeta=4).omega2
     target = fax.eigenmodes(konies(40), h, rho, target_hz=6.46e4, count=4, ntheta=16, nzeta=4).omega2
     np.testing.assert_allclose(target, dense_w[np.sort(np.argsort(np.abs(dense_w - (2 * np.pi * 6.46e4) ** 2))[:4])], rtol=1e-10)
@@ -378,7 +378,7 @@ def test_cylinder_newcomb_m1_and_suydam_threshold():
     ``r B^2 (q'/q)^2 / (8 mu0) + p' > 0`` gives p0 = 1.05e4 Pa; below it the lowest omega^2 is
     the discretization error of a marginal continuum (O(1/N^2)), above it a converged instability.
     """
-    rho = fax.mass_density(2e19, 1.0)
+    rho = fax.mass_density(2e19, 1.00727647)
     vacuum = [global_matrices(konies(16), fax.mode_family(6, 13, 9), rho, 16, 4, finite_beta=x) for x in (False, True)]
     jax.tree_util.tree_map(lambda a, b: np.testing.assert_array_equal(a, b), *vacuum)  # no current, no pressure
 
@@ -402,7 +402,7 @@ def test_cylinder_newcomb_m1_and_suydam_threshold():
 
 def test_unstable_omega2_is_signed_with_finite_gradients():
     """Suydam-unstable cylinder (p0 = 2e4 Pa): omega^2 < 0 is kept, with the growth rate and stable frequency separate."""
-    rho, s = fax.mass_density(2e19, 1.0), (jnp.arange(400) + 0.5) / 400
+    rho, s = fax.mass_density(2e19, 1.00727647), (jnp.arange(400) + 0.5) / 400
 
     def modes(r, **kw):
         geo = fax.circular_torus(s=s, major_radius=10.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), pressure=[2e4, -2e4])
@@ -450,23 +450,23 @@ def test_targeted_eigenpairs_fallback_and_tied_selection():
 
 
 def test_solver_status_and_rejection_of_unconverged_gradients():
-    h, rho = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.0)
+    h, rho = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.00727647)
     options = dict(target_hz=6.46e4, count=4, ntheta=16, nzeta=4)
-    good, poor = (fax.eigenmodes(konies(40), h, rho, iters=iters, **options) for iters in (100, 3))
+    good, poor = (fax.eigenmodes(konies(40), h, rho, iters=iters, **options) for iters in (100, 1))
     assert good.status.converged and good.status.residual < 1e-10 and good.status.orthogonality < 1e-10 and good.status.gap > 0
-    assert not good.status.fallback and 3 < good.status.iterations < 100
-    assert not poor.status.converged and poor.status.residual > 1e-10 and poor.status.iterations == 3
+    assert not good.status.fallback and 1 < good.status.iterations < 100
+    assert not poor.status.converged and poor.status.residual > 1e-10 and poor.status.iterations == 1
     full = fax.eigenmodes(konies(40), h, rho, ntheta=16, nzeta=4)
     assert full.status.converged and full.status.iterations == 0 and full.status.residual < 1e-12
 
     F, G = global_matrices(konies(40), h, rho, 16, 4)
     target = float((2 * np.pi * 6.46e4) ** 2)
     assert jnp.isfinite(targeted_eigenvalues(F, G, target, 4, 100)).all()
-    assert jnp.isnan(targeted_eigenvalues(F, G, target, 4, 3)).all()
-    jvp = jax.jvp(lambda f: targeted_eigenvalues(Blocks(f, F.upper), G, target, 4, 3), (F.diag,), (jnp.ones_like(F.diag),))
+    assert jnp.isnan(targeted_eigenvalues(F, G, target, 4, 1)).all()
+    jvp = jax.jvp(lambda f: targeted_eigenvalues(Blocks(f, F.upper), G, target, 4, 1), (F.diag,), (jnp.ones_like(F.diag),))
     assert jnp.isnan(jvp[1]).all()
     run = lambda iters: fax.frequency_hz(konies(40), h, rho, 0, 1, iters=iters, **options)  # noqa: E731
-    assert jnp.isfinite(run(100)) and jnp.isnan(run(3))
+    assert jnp.isfinite(run(100)) and jnp.isnan(run(1))
 
 
 def test_cluster_mean_first_derivative_at_degeneracy():

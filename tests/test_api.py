@@ -107,7 +107,7 @@ def test_documented_transforms_and_failure_behaviour():
     """The derivative contract of ``docs/api.md``: jit, vmap, NaN on an unconverged solve, NaN propagation and ``kind`` validation."""
     s = (jnp.arange(24) + 0.5) / 24
     geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
-    h, rho = fax.mode_family(6, 12, 7), fax.mass_density(2e19, 1.0)
+    h, rho = fax.mode_family(6, 12, 7), fax.mass_density(2e19, 1.00727647)
     grid, solve = dict(ntheta=16, nzeta=4), dict(target_hz=6.46e4, count=3)
     f = lambda r, **kw: fax.frequency_hz(geo, h, r, 2, 3, **solve, **grid, **kw)  # noqa: E731
     grad = jax.vmap(jax.grad(f))(rho * jnp.array([1.0, 2.0]))  # d f / d rho = -f / 2 rho for f ~ rho^-1/2

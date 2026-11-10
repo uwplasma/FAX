@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import solvax
 
 from .continuum import MU0, generalized_eigh
-from .geometry import Geometry, _d_ds, surface_grid
+from .geometry import Geometry, _d_ds, check, surface_grid
 
 
 class Blocks(NamedTuple):
@@ -87,6 +87,8 @@ def global_matrices(
         int sigma b.(grad phi~* x grad u) dV - 2 mu0 int (b x grad phi.grad p)(b x grad phi~*.kappa) / B^2 dV.
     """
     h = jnp.asarray(harmonics, dtype=float)
+    check(jnp.all(jnp.asarray(density) > 0), "density must be positive")
+    check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
     g = surface_grid(geo, ntheta, nzeta)
     D, (iota_s, D_s) = geo.G + geo.iota * geo.I, _d_ds(jnp.stack([geo.iota, geo.G + geo.iota * geo.I], 1), geo.s).T
     inertia, bending = _modes(g, geo.iota, iota_s, D, D_s, h)

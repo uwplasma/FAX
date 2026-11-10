@@ -4,7 +4,7 @@ A case file has four tables (every key is optional except ``geometry.source``)::
 
     [geometry]  source = "boozmn" | "wout" | "vmec" | "circular", path, mboz, nboz, surfaces, ns, ftol, max_iter
     [modes]     n = [2], m_max = 12, m_min = 0
-    [plasma]    density = 1e19 (ions/m^3), ion_mass = 2.0 (proton masses)
+    [plasma]    density = 1e19 (ions/m^3), ion_mass = 2.0 (amu)
     [run]       task = "continuum" | "eigenmodes", output, ntheta, nzeta, target_khz (0: all modes), count
 """
 
