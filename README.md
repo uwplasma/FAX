@@ -24,7 +24,7 @@ fast-ion drive, with first-order derivatives with respect to profiles and, throu
 | Drive of a fixed mode: zero orbit width, passing ions only | Trapped particles, finite orbit width, finite Larmor radius |
 
 The drive is perturbative and valid up to about 200 keV in the Könies case ($\gamma/\omega \le 4\%$). It is about 0.6 of the CAS3D-K
-zero-orbit-width curve, plausibly the missing trapped share; that attribution is not established. Derivatives are first order and
+zero-orbit-width curve; the ratio is unexplained (see the validation page). Derivatives are first order and
 are NaN unless the eigensolve converged and its selection is not a tie.
 
 ## Install

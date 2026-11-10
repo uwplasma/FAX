@@ -591,9 +591,11 @@ tokamak gates use {func}`fax.circular_torus`, axisymmetric (`helical = 0`,
   | ratio | 0.58 | 0.60 | 0.58 | 0.60 |
   | $\gamma/\omega$ | 0.006 | 0.022 | 0.029 | 0.038 |
 
-  FAX is a constant 0.58–0.60 of the ZOW curve over a factor 2.3 in $T_f$, which is what a missing trapped contribution of
-  about 40% would look like; that attribution is not established and needs either a passing-only CAS3D-K ZOW run (Könies and
-  Kleiber 2012, not in the reference folder) or trapped particles in FAX. Missing damping is unknown, not zero: the paper
+  FAX is a constant 0.58–0.60 of the ZOW curve over a factor 2.3 in $T_f$, and the ratio is unexplained. It is not the
+  trapped share: the prefactor checks out from first principles, and the trapped part of the drive is at most 5% at 82–191 keV (the
+  ratio is flat in $T_f$, while the drive is the $v_A/3$ resonance and dies toward the trapped-passing boundary). Open candidates:
+  the content of CAS3D-K's ZOW curve (a passing-only run, Könies and Kleiber 2012, is not in the reference folder) and the $O(\epsilon)$
+  toroidal coupling of the finite-aspect VMEC equilibrium against FAX's first-order circular model. Missing damping is unknown, not zero: the paper
   subtracts each code's damping so that $\gamma(T_f = 0) = 0$, FAX has no continuum, electron or ion Landau damping of the
   mode ($\gamma_d$ would be subtracted). Frozen-mode validity: $\gamma/\omega$ stays below 5% up to 200 keV and reaches 8% and 16%
   at 300 and 400 keV, where the perturbative picture also loses the frequency shift of fig. 2 and finite orbit width. Rungs 3–5
