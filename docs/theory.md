@@ -477,9 +477,9 @@ $$
 - **Parameters.** Names `rc|rs|zc|zs` + `m` + `n` select `RBC`, `RBS`, `ZBC`,
   `ZBS` entries; `"zs01"` is `ZBS(n=1, m=0)`. Offsets are added to the input's
   coefficients.
-- **Boozer transform.** `booz_xform_jax_impl` is traced on the half-mesh
-  rows $j \ge 2$, $s = (j - 1/2)/(n_s - 1)$ (row 1 waits for a vmex fix of its
-  $R$, $Z$ tables).
+- **Boozer transform.** `vmex.core.omnigenity.boozer_spectrum_state` (vmex 0.13 or
+  later) traces `booz_xform_jax` on every half-mesh row $j \ge 1$,
+  $s = (j - 1/2)/(n_s - 1)$, and returns the geometry in one call.
 - **Radial grid.** {meth}`fax.geometry.Geometry.interpolate` maps that geometry,
   linearly in $s$ and extrapolated to $s = 0, 1$ (harmonics with $m > 0$ follow
   $(s/s_0)^{m/2}$ below the first surface), onto `nodes` uniform FE

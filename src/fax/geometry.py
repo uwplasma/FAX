@@ -144,7 +144,7 @@ def _surface_major(variable: Any) -> np.ndarray:
 
 
 def from_booz_xform(output: dict[str, Any], s: Any, nfp: int) -> Geometry:
-    """Convert a ``booz_xform_jax`` output dictionary (traceable)."""
+    """Convert a ``booz_xform_jax`` output or a ``vmex.core.omnigenity.boozer_spectrum_state`` dictionary (traceable)."""
     arrays = {name: output[f"{name}_b"] for name in _MODES if f"{name}_b" in output}
     if "gmnc" not in arrays and "gmn_b" in output:
         arrays["gmnc"] = output["gmn_b"]
@@ -152,11 +152,11 @@ def from_booz_xform(output: dict[str, Any], s: Any, nfp: int) -> Geometry:
     values = {name: jnp.asarray(arrays.get(name, zeros)) for name in _MODES}
     return Geometry(
         s=jnp.asarray(s),
-        xm=jnp.asarray(output["ixm_b"], dtype=float),
-        xn=jnp.asarray(output["ixn_b"], dtype=float),
+        xm=jnp.asarray(output.get("ixm_b", output.get("xm_b")), dtype=float),
+        xn=jnp.asarray(output.get("ixn_b", output.get("xn_b")), dtype=float),
         iota=jnp.asarray(output["iota_b"]),
-        G=jnp.asarray(output["bvco_b"]),
-        I=jnp.asarray(output["buco_b"]),
+        G=jnp.asarray(output["bvco_b"] if "bvco_b" in output else output["G_b"]),
+        I=jnp.asarray(output["buco_b"] if "buco_b" in output else output["I_b"]),
         nfp=int(nfp),
         **values,
     )

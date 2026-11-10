@@ -202,17 +202,15 @@ def prepare_design(
     """Prepare a design: parameters are boundary names ``rc|rs|zc|zs`` + ``m`` + ``n`` (e.g. ``"zs11"``, one digit each,
     ``n`` signed) or tuples ``("zs", m, n)``, which are required for multi-digit modes.
 
-    The equilibrium (``ns``, ``ftol``) is transformed on the half-mesh rows ``j >= 2`` and
+    The equilibrium (``ns``, ``ftol``) is transformed on the half-mesh rows ``j >= 1`` and
     interpolated linearly in ``s`` onto ``nodes`` uniform interior finite-element
     nodes ``k / (nodes + 1)``, so the radial domain is always ``[0, 1]`` and the
     FE grid refines independently of ``ns`` and ``mboz``. ``options`` go to
     :func:`fax.eigen.global_matrices` (``ntheta``, ``nzeta``) and the
     shift-invert solve (``target_hz``, ``count``, ``iters``).
     """
-    from booz_xform_jax.jax_api import prepare_booz_xform_constants
     from vmex import VmecInput
     from vmex.core import implicit
-    from vmex.core.boozer_tables import boozer_input_tables
 
     path = str(Path(input_path).expanduser().resolve())
     inp = VmecInput.from_file(path)
@@ -220,19 +218,8 @@ def prepare_design(
     params = implicit.params_from_input(inp)
     slots = tuple(_slot(name, int(inp.ntor)) for name in parameters)
     s_full = np.asarray(implicit.runtime_from_params(params, config).setup.s_full)
-    modes: dict[str, np.ndarray] = {}
-
-    def probe(p: Any) -> jax.Array:  # mode tables are static; read them from an abstract trace
-        tables = boozer_input_tables(implicit.solve_implicit(p, config), implicit.runtime_from_params(p, config), 1)
-        modes.update(xm=np.asarray(tables["xm"]), xn=np.asarray(tables["xn"]))
-        return tables["bmnc"]
-
-    jax.eval_shape(probe, params)
-    constants, grids = prepare_booz_xform_constants(
-        nfp=int(inp.nfp), mboz=mboz, nboz=nboz, asym=bool(inp.lasym), xm=modes["xm"], xn=modes["xn"], xm_nyq=modes["xm"], xn_nyq=modes["xn"]
-    )
-    s = jnp.asarray(0.5 * (s_full[1:-1] + s_full[2:]))  # half rows j >= 2: vmex <= 0.11.11 divides odd-m R, Z by sqrt(0) on j = 1
-    cache = dict(config=config, params=params, s=s, constants=constants, grids=grids, nfp=int(inp.nfp), **modes)
+    s = jnp.asarray(0.5 * (s_full[:-1] + s_full[1:]))  # every half-mesh row
+    cache = dict(config=config, params=params, s=s, mboz=int(mboz), nboz=int(nboz))
     return Design(
         path, tuple(map(str, parameters)), slots, jnp.asarray(harmonics, dtype=float), float(density), int(nodes), dict(options), cache
     )
@@ -247,26 +234,12 @@ def design_params(offsets: Any, design: Design) -> Any:
 
 
 def state_geometry(state: Any, runtime: Any, design: Design) -> Geometry:
-    """Boozer geometry on the half-mesh rows ``j >= 2`` from a vmex state and runtime (traceable)."""
-    from booz_xform_jax.jax_api import booz_xform_jax_impl
-    from vmex.core.boozer_tables import boozer_input_tables
+    """Boozer geometry on the half-mesh rows ``j >= 1`` from a vmex state and runtime (traceable), one call to vmex."""
+    from vmex.core.omnigenity import boozer_spectrum_state
 
     c = design._cache
-    tables = [boozer_input_tables(state, runtime, j + 2) for j in range(c["s"].size)]
-    names = ["rmnc", "zmns", "lmns", "bmnc", "bsubumnc", "bsubvmnc", "iota"]
-    if c["config"].inp.lasym:
-        names += ["rmns", "zmnc", "lmnc", "bmns", "bsubumns", "bsubvmns"]
-    xm, xn = jnp.asarray(c["xm"]), jnp.asarray(c["xn"])
-    output = booz_xform_jax_impl(
-        **{k: jnp.stack([t[k] for t in tables]) for k in names},
-        xm=xm,
-        xn=xn,
-        xm_nyq=xm,
-        xn_nyq=xn,
-        constants=c["constants"],
-        grids=c["grids"],
-    )
-    return from_booz_xform(output, c["s"], c["nfp"])
+    out = boozer_spectrum_state(state, runtime, surfaces=c["s"], mboz=c["mboz"], nboz=c["nboz"], oversample=1, geometry=True)
+    return from_booz_xform(out, out["s_b"], out["nfp"])
 
 
 def design_state(offsets: Any, design: Design) -> tuple[Any, Any]:
