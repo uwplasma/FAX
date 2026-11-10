@@ -4,7 +4,7 @@ A case file has four tables (every key is optional except ``geometry.source``)::
 
     [geometry]  source = "boozmn" | "wout" | "vmec" | "circular", path, mboz, nboz, surfaces, ns, ftol, max_iter
     [modes]     n = [2], m_max = 12, m_min = 0
-    [plasma]    density = 1e19 (ions/m^3), ion_mass = 2.0 (proton masses)
+    [plasma]    density = 1e19 (ions/m^3), ion_mass = 2.0 (amu)
     [run]       task = "continuum" | "eigenmodes", output, ntheta, nzeta, target_khz (0: all modes), count
 """
 
@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
+import jax
 import numpy as np
 
-if sys.version_info >= (3, 11):
+try:
     import tomllib
-else:  # pragma: no cover - Python 3.10
+except ImportError:  # Python 3.10
     import tomli as tomllib
 
 from .continuum import continuum, gaps, mass_density, mode_family
@@ -118,9 +118,15 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser("run", help="run a TOML case")
     run_parser.add_argument("case")
     run_parser.add_argument("--plot", action="store_true", help="also write figures")
+    run_parser.add_argument(
+        "--cache", nargs="?", const="~/.cache/fax/jax", help="persist JAX compilations in DIR (default ~/.cache/fax/jax)"
+    )
     sub.add_parser("plot", help="plot a results folder").add_argument("folder")
     args = parser.parse_args(argv)
     if args.command == "run":
+        if args.cache:
+            jax.config.update("jax_compilation_cache_dir", str(Path(args.cache).expanduser()))
+            jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)  # the many small op-by-op compiles dominate
         out = run(args.case)
         folder = load(args.case)["run"]["output"]
         print(f"{Path(args.case).name}: {out['frequencies_hz'].shape} frequencies -> {folder}")

@@ -1,26 +1,29 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "uwplasma-fax"
-version = "0.1.0"
+name = "alfvex"
+version = "1.0.1"
 description = "Differentiable JAX code for Alfvén eigenmodes and fast-ion physics in stellarators."
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
-authors = [{ name = "UWPlasma contributors" }]
+authors = [{ name = "Rogerio Jorge", email = "rogerio.jorge@wisc.edu" }]
 license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
-  "jax",
+  "jax>=0.4.38",
+  "solvax>=0.36.0",
   "numpy",
   "netCDF4",
   "tomli; python_version < '3.11'",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -43,15 +46,18 @@ plot = ["matplotlib"]
 vmex = ["vmex>=0.11.10; python_version >= '3.11'"]
 test = ["pytest", "coverage", "matplotlib"]
 docs = ["sphinx", "furo", "myst-parser"]
-dev = ["uwplasma-fax[test,docs]", "ruff", "build", "twine"]
+dev = ["alfvex[test,docs]", "ruff", "build", "twine"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not slow'"
-markers = ["slow: end-to-end vmex runs (minutes); run with -m slow or -m ''"]
+addopts = "-m 'not slow and not scheduled'"
+markers = [
+  "slow: minutes-long tests (vmex solves, 64-harmonic AE3D band); the PR coverage job runs them, the per-Python matrix does not",
+  "scheduled: frozen-path gradients and resolution sweeps (tens of minutes); the weekly workflow runs -m scheduled",
+]
 
 [tool.ruff]
 line-length = 140

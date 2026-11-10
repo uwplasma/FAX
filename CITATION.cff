@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use FAX in your research, please cite it as below."
+title: "FAX: differentiable shear-Alfvén spectra and fast-ion drive for stellarators in JAX"
+type: software
+authors:
+  - family-names: Jorge
+    given-names: Rogerio
+    email: rogerio.jorge@wisc.edu
+    affiliation: University of Wisconsin-Madison
+abstract: >-
+  Differentiable JAX code for the shear-Alfvén continuum, AE3D-form global eigenmodes and the perturbative passing
+  fast-ion drive in Boozer geometry, usable inside VMEX boundary optimization.
+repository-code: "https://github.com/uwplasma/fax"
+url: "https://fax.readthedocs.io"
+license: MIT
+version: 1.0.1
+keywords:
+  - Alfvén eigenmodes
+  - fast ions
+  - JAX
+  - stellarator
+  - automatic differentiation
+  - plasma physics
+date-released: 2026-10-30

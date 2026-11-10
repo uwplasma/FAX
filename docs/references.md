@@ -8,6 +8,12 @@
 - **Global operator.** D. A. Spong, E. D'Azevedo and Y. Todo, "Clustered
   frequency analysis of shear Alfvén modes in stellarators", *Phys. Plasmas*
   **17**, 022106 (2010). [doi:10.1063/1.3313818](https://doi.org/10.1063/1.3313818)
+- **Reduced ordering and energy principle.** S. E. Kruger, C. C. Hegna and
+  J. D. Callen, "Generalized reduced magnetohydrodynamic equations", *Phys.
+  Plasmas* **5**, 4169–4182 (1998).
+  [doi:10.1063/1.873152](https://doi.org/10.1063/1.873152); J. P. Freidberg,
+  *Ideal MHD* (Cambridge University Press, 2014), the $\delta W$ form used for
+  the finite-$\beta$ terms.
 - **Continuum of quasisymmetric stellarators, gap widths, objectives.**
   E. J. Paul, A. Hyder, E. Rodríguez, R. Jorge and A. Knyazev, "The shear
   Alfvén continuum of quasisymmetric stellarators", *J. Plasma Phys.* **91**,
@@ -34,6 +40,9 @@
   of gyrokinetic, kinetic MHD and gyrofluid codes for the linear calculation of
   fast particle driven TAE dynamics", *Nucl. Fusion* **58**, 126027 (2018).
   [doi:10.1088/1741-4326/aae4e6](https://doi.org/10.1088/1741-4326/aae4e6)
+- A. Knyazev et al., "On shear Alfvén wave-induced energetic ion transport in optimized stellarators", *J. Plasma Phys.* (2026),
+  arXiv:2603.03118; data archive [doi:10.5281/zenodo.21299907](https://doi.org/10.5281/zenodo.21299907) (CC-BY-4.0): the precise-QA
+  fixture of {doc}`validation`, with its provenance in `tests/data/PROVENANCE.md`.
 - A. Mishchenko, A. Könies and R. Hatzky, "Global particle-in-cell simulations
   of plasma pressure effects on Alfvénic modes", *Phys. Plasmas* **18**, 012504
   (2011). [doi:10.1063/1.3546021](https://doi.org/10.1063/1.3546021)

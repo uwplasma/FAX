@@ -1,0 +1,111 @@
+--- a/ae_solve_version31.f
++++ b/ae_solve_version31.f
+@@ -206,6 +206,9 @@
+      > stell_rfp_specific_term4, stell_rfp_specific_term5,
+      > stell_rfp_specific_term6, stell_rfp_specific_term7
+       integer :: nm_c
++      real(kind=rprec) :: iotps, sx1, sx2, sx3
++      character*32 :: swenv
++      logical :: lS, lJ, lP, lDump
+       real(kind=rprec) :: nion(10)
+       real :: tsec, t0, t00, ddot, stemp1, stemp2
+       real(kind=rprec) :: mu0, scale_khz, one, zero, tsec0,
+@@ -232,6 +235,15 @@
+       read(4,plasma_input)
+       close(unit=4)
+       mass_ion = mass_proton*ion_to_proton_mass
++      swenv = 'SJP'
++      call get_environment_variable('AE3D_SW', swenv)
++      lS = index(swenv,'S') .gt. 0; lJ = index(swenv,'J') .gt. 0
++      lP = index(swenv,'P') .gt. 0
++      sx1 = 0.d0; sx2 = 0.d0; sx3 = 0.d0
++      if(index(swenv,'1') .gt. 0) sx1 = 1.d0
++      if(index(swenv,'2') .gt. 0) sx2 = 1.d0
++      if(index(swenv,'3') .gt. 0) sx3 = 1.d0
++      lDump = index(swenv,'D') .gt. 0
+ c      
+ c      The following solver is used:
+ c
+@@ -364,6 +376,10 @@
+        jprl_coef0(ns) = 2.*jprl_coef0(ns-1) - jprl_coef0(ns-2)
+        jprl_coef1(ns) = 2.*jprl_coef1(ns-1) - jprl_coef1(ns-2)
+        jprl_coef2(ns) = 2.*jprl_coef2(ns-1) - jprl_coef2(ns-2)
++       if(.not. lJ) then
++        jprl_coef0 = 0.d0; jprl_coef1 = 0.d0; jprl_coef2 = 0.d0
++       end if
++       if(.not. lP) prespf = 0.d0
+        do i=1,nznt
+         rjacob(i,ns) = 2.*rjacob(i,ns-1) - rjacob(i,ns-2)
+         bfield(i,ns) = 2.*bfield(i,ns-1) - bfield(i,ns-2)
+@@ -861,6 +877,7 @@
+       allocate(dd(mn_col,mn_col,ns), stat=istat)
+       allocate(dd1(mn_col,mn_col,ns), stat=istat)
+       allocate(dd2(mn_col,mn_col,ns), stat=istat)
++      bb1 = 0.d0; bb2 = 0.d0; cc2 = 0.d0; cc = 0.d0
+       allocate(aa_mag(ns), stat=istat)
+       allocate(bb_mag(ns), stat=istat)
+       allocate(dd1_mag(ns), stat=istat)
+@@ -889,6 +906,8 @@
+ 	   d_kprl_i_nw_dtht = rmi*rni*alf_zet(m) - rmi*rmi*alf_tht(m)
+ 	   d_kprl_i_nw_dzet = rmi*rni*alf_tht(m) - rni*rni*alf_zet(m)
+            kprl_ij = kprl_i*kprl_j
++           iotps = 0.d0
++           if(lS) iotps = iotapf(m)
+            call scs_convolve(ans_ssc,meq,neq,mi,ni,mj,nj)  !eq=sin, i=cos, j=sin
+            call scs_convolve(ans_css,meq,neq,mj,nj,mi,ni)  !eq=sin, i=sin, j=cos
+            call scs_convolve(ans_scs,mi,ni,mj,nj,meq,neq)  !eq=cos, i=sin, j=sin
+@@ -910,19 +929,20 @@
+      >           ans_css*gsz_j(k,m)*kprl_j*rnj*rni*iota_inv_pf(m)
+ 	  else
+            stell_rfp_specific_term2 =
+-     >         -ans_scs*gss_j(k,m)*rmj*iotapf(m)*kprl_i
++     >         -ans_scs*gss_j(k,m)*(rmj*kprl_i + sx1*(rmi*kprl_j - rmj*kprl_i))*iotps
+            stell_rfp_specific_term3 =
+      >          ans_scs*(gss_ji_djds2(k,m)*kprl_ij
+-     >          - gss_djds(k,m)*iotapf(m)*(kprl_i*rmj - kprl_j*rmi)
+-     >          + rmi*rmj*gss_j(k,m)*iotapf(m)*iotapf(m))
+-           stell_rfp_specific_term4 =
+-     >          -ans_scs*gst_djdt(k,m)*kprl_j*rmi*iotapf(m)
++     >          - gss_djds(k,m)*iotps*(kprl_i*rmj - kprl_j*rmi)
++     >          + sx2*gss_djds(k,m)*iotps*(kprl_i*rmj + kprl_j*rmi)
++     >          + rmi*rmj*gss_j(k,m)*iotps*iotps)
++           stell_rfp_specific_term4 =
++     >          -(1.d0-2.d0*sx3)*ans_scs*gst_djdt(k,m)*kprl_j*rmi*iotps
+            stell_rfp_specific_term5 =
+-     >          -ans_css*gst_j(k,m)*rmi*rmj*kprl_j*iotapf(m)
++     >          -(1.d0-2.d0*sx3)*ans_css*gst_j(k,m)*rmi*rmj*kprl_j*iotps
+            stell_rfp_specific_term6 =
+-     >          -ans_scs*gsz_djdz(k,m)*kprl_j*rmi*iotapf(m)
++     >          -ans_scs*gsz_djdz(k,m)*kprl_j*rmi*iotps
+            stell_rfp_specific_term7 =
+-     >           ans_css*gsz_j(k,m)*kprl_j*rnj*rmi*iotapf(m)
++     >           ans_css*gsz_j(k,m)*kprl_j*rnj*rmi*iotps
+ 	  endif
+            aa(i,j,m) = aa(i,j,m) + ans_scs*gss_j(k,m)*kprl_ij
+ 
+@@ -1007,6 +1027,12 @@
+       tsec = secnds(t0)
+       t0 = secnds(0.0)
+       write(*,'("time bending blocks(sec) = ",e12.5)') tsec
++      open(unit=61,file='blocks.bin',form='unformatted',access='stream',status='replace')
++      write(61) mn_col, ns
++      write(61) im_col, in_col
++      write(61) rho, iotaf, iotapf, jpolf, jtorf, jpolpf, jtorpf, phipf
++      write(61) a, b, d, aa, bb, cc, dd
++      close(61)
+ c
+ c   collect diagnostic info. on the block sizes
+ c 
+@@ -1107,6 +1133,12 @@
+       t0 = secnds(0.0)
+       write(*,'("time full matrix assembly(sec) = ",e12.5)') tsec
+ c
++      if(lDump) then
++       open(unit=62,file='mats.bin',form='unformatted',access='stream',status='replace')
++       write(62) mat_bending, mat_inertia
++       close(62)
++       stop 26
++      end if
+       if(build_matrix_only) then
+        write(32,*) ns, mn_col
+        do i=1,mn_col

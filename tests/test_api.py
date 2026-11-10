@@ -1,5 +1,8 @@
 """Drive screen, objectives, TOML runs, CLI and plotting."""
 
+import importlib
+import sys
+import types
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,6 +12,7 @@ import numpy as np
 import pytest
 
 import fax
+from fax.continuum import MU0
 from fax.io import main
 
 CTOK = str(Path(__file__).parent / "data" / "boozmn_ctok.nc")
@@ -35,6 +39,15 @@ def test_continuum_cost_of_an_elliptic_torus():
     assert jax.grad(cost)(1.5) == pytest.approx((cost(1.5 + 1e-5) - cost(1.5 - 1e-5)) / 2e-5, rel=1e-7)
 
 
+def test_boundary_parameters_accept_tuples_and_reject_ambiguous_strings():
+    slot = lambda p: fax.objectives._slot(p, 3)  # noqa: E731
+    assert slot("rc01") == ("rbc", 4, 0) and slot("zs1-2") == ("zbs", 1, 1) and slot(("zs", 12, -2)) == ("zbs", 1, 12)
+    assert slot(("rc", 10, 11)) == ("rbc", 14, 10)
+    for bad in ("rc101", "rc1-12", "rc1", "xc01"):
+        with pytest.raises(ValueError, match="cannot read"):
+            slot(bad)
+
+
 def test_load_rejects_unknown_keys():
     with pytest.raises(ValueError):
         fax.load({"run": {"tsk": "continuum"}})
@@ -56,7 +69,65 @@ def test_run_cases_and_cli(tmp_path, task):
 
 
 def test_circular_geometry_run():
-    out = fax.run({"run": {"ntheta": 8, "nzeta": 4}}, save=False)
-    assert out["frequencies_hz"].shape == (24, 9)
+    out = fax.run({"run": {"ntheta": 32, "nzeta": 4}}, save=False)
+    k = np.abs(1.0 - np.arange(9) * 0.4) / 5.5  # uniform field: f = |n - m iota| B0 / (R sqrt(mu0 rho)) / 2 pi
+    exact = np.sort(k * 2.7 / np.sqrt(MU0 * fax.mass_density(1e19)) / (2 * np.pi))
+    np.testing.assert_allclose(out["frequencies_hz"], np.broadcast_to(exact, (24, 9)), rtol=1e-9)
+    with pytest.raises(ValueError, match="aliases"):
+        fax.run({"run": {"ntheta": 8, "nzeta": 4}}, save=False)
     with pytest.raises(ValueError):
         fax.run({"run": {"task": "nope"}}, save=False)
+
+
+def test_cli_run_without_plot_writes_results_only(tmp_path, capsys):
+    case = tmp_path / "case.toml"
+    case.write_text('[run]\noutput = "out"\nntheta = 32\nnzeta = 4\n')
+    assert main(["run", str(case)]) == 0
+    assert "(24, 9) frequencies" in capsys.readouterr().out
+    assert (tmp_path / "out" / "results.npz").exists() and (tmp_path / "out" / "case.json").exists()
+    assert not list((tmp_path / "out").glob("*.png"))
+
+
+def test_cli_cache_flag_sets_the_compilation_cache_dir(tmp_path):
+    case = tmp_path / "case.toml"
+    case.write_text('[run]\noutput = "out"\nntheta = 32\nnzeta = 4\n')
+    try:
+        assert main(["run", str(case), "--cache", str(tmp_path / "jit")]) == 0
+        assert jax.config.jax_compilation_cache_dir == str(tmp_path / "jit")
+    finally:
+        jax.config.update("jax_compilation_cache_dir", None)
+        jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+
+
+def test_geometry_source_is_validated():
+    with pytest.raises(ValueError, match="geometry.source must be one of"):
+        fax.io.geometry(fax.load({"geometry": {"source": "gs2"}}))
+
+
+def test_toml_reader_falls_back_to_tomli(monkeypatch):
+    fallback = types.ModuleType("tomli")
+    with monkeypatch.context() as patch:
+        patch.setitem(sys.modules, "tomllib", None)  # ``import tomllib`` now raises ImportError
+        patch.setitem(sys.modules, "tomli", fallback)
+        assert importlib.reload(fax.io).tomllib is fallback
+    assert importlib.reload(fax.io).tomllib is not fallback
+    assert fax.load({})["modes"]["n"] == [1]
+
+
+def test_documented_transforms_and_failure_behaviour():
+    """The derivative contract of ``docs/api.md``: jit, vmap, NaN on an unconverged solve, NaN propagation and ``kind`` validation."""
+    s = (jnp.arange(24) + 0.5) / 24
+    geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
+    h, rho = fax.mode_family(6, 12, 7), fax.mass_density(2e19, 1.00727647)
+    grid, solve = dict(ntheta=16, nzeta=4), dict(target_hz=6.46e4, count=3)
+    f = lambda r, **kw: fax.frequency_hz(geo, h, r, 2, 3, **solve, **grid, **kw)  # noqa: E731
+    grad = jax.vmap(jax.grad(f))(rho * jnp.array([1.0, 2.0]))  # d f / d rho = -f / 2 rho for f ~ rho^-1/2
+    np.testing.assert_allclose(grad, -jax.vmap(f)(rho * jnp.array([1.0, 2.0])) / (2 * rho * jnp.array([1.0, 2.0])), rtol=1e-6)
+    assert jnp.isnan(f(rho, iters=1)) and jnp.isnan(jax.grad(lambda r: f(r, iters=1))(rho))  # unconverged: value and tangent rejected
+    omega2 = jax.jit(lambda g, r: fax.eigenmodes(g, h, r, **solve, **grid).omega2)(geo, rho)
+    assert omega2.shape == (3,) and (omega2 > 0).all()
+    ions, drive = fax.FastIons(1e17, 2e5), dict(helical=0, nzeta=1, ntheta=16, nodes=8)
+    gamma = lambda phi: fax.growth_rate(4e5, phi, geo, ((10, 6), (11, 6)), ions, rho, **drive)  # noqa: E731
+    assert jnp.isfinite(gamma(jnp.ones((24, 2)))) and jnp.isnan(gamma(jnp.full((24, 2), jnp.nan)))
+    with pytest.raises(ValueError, match="unknown FastIons kind"):
+        fax.FastIons(kind="beam")

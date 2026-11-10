@@ -1,6 +1,6 @@
 """Gradient of global Alfvén frequencies with respect to VMEC boundary coefficients.
 
-Run: python examples/boundary_gradient.py   (needs ``pip install "uwplasma-fax[vmex]"``)
+Run: python examples/boundary_gradient.py   (needs ``pip install "alfvex[vmex]"``)
 """
 
 from pathlib import Path
@@ -18,10 +18,10 @@ design = fax.prepare_design(
     ntheta=8,
     nzeta=8,
 )
-objective = lambda p: fax.window_risk(fax.design_frequencies(p, design), (250e3, 290e3), 10e3)  # noqa: E731
+objective = lambda p: fax.window_risk(fax.design_frequencies(p, design)[0], (250e3, 290e3), 10e3)  # noqa: E731
 p = jnp.zeros(2)
 value, grad = jax.value_and_grad(objective)(p)
-print(f"frequencies (kHz): {fax.design_frequencies(p, design) / 1e3}")
+print(f"frequencies (kHz): {fax.design_frequencies(p, design)[0] / 1e3}")
 print(f"risk = {value:.4e}, d risk / d {design.names} = {grad}")
 step = -1e-3 * grad / jnp.linalg.norm(grad)
 print(f"risk after a 1e-3 step along -grad: {objective(p + step):.4e}")

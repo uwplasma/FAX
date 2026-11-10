@@ -14,16 +14,25 @@ orbit of pitch ``lam = mu / E`` follows ``theta - iota zeta = const`` with ``dt/
 ``varphi = zeta + chi`` solve ``(iota d_theta + d_zeta) chi = h / <h> - 1``,
 ``h = 1 / (|xi| B)``. The work ``Ze v_d . E`` decomposed in them resonates at
 ``omega = |j iota - k| omega_zeta(v, lam)`` for ``j = m + l`` and ``k = n + k' N_fp``:
-the toroidal (``l``) and helical (``k'``) sidebands of the B spectrum. With ZOW
-``P_zeta = m v_par G / B - Z e psi_p`` and ``E_par = 0`` each harmonic carries
-``Q_h F = dF/dE + n_h dF/ds / (omega Z e iota psi')``, and the resonance is integrated
-exactly in speed at each pitch (Gauss-Legendre in ``lam``), so ``gamma`` is smooth::
+the toroidal (``l``) and helical (``k'``) sidebands of the B spectrum. The unperturbed passing orbit is a
+quasi-periodic winding of the torus ``(vartheta, varphi)`` with actions ``J_vartheta = Ze psi + O(rho)`` (the
+mean toroidal flux) and ``J_varphi``; ``P_zeta`` is not invariant without symmetry. For ``F(E, mu, s)`` and
+the resonant harmonic ``e^{i(j vartheta - k varphi)}``, ``dJ_vartheta = j dE / omega``, so each resonance
+carries ``Q_jk F = dF/dE + j dF/ds / (omega Ze psi')`` (docs/theory.md, section 8) with ``psi'`` the toroidal
+flux derivative: the orbit's poloidal harmonic ``j``, not the mode's ``n``, which reduces to ``n / iota`` of
+the tokamak ``P_zeta`` form up to the labelling difference ``O((j iota - n) / n)`` and is invariant under
+``theta -> theta - N zeta``. The resonance is integrated exactly in speed at each pitch (Gauss-Legendre in
+``lam``), so ``gamma`` is smooth::
 
-    gamma = pi^2 mu0 m_f^2 / (2 y.H G y) int |psi'| ds int dlam sum_jk v^6 Re[C* Q C] / (|j iota - k| w^2),
+    gamma = pi^2 mu0 m_f^2 / (2 y.H G y) int |psi'| ds int dlam sum_jk v^6 Q_jk |C|^2 / (|j iota - k| w^2),
+    C = sum_h C_h,
     C_h = < (1 + xi^2) / (2 B^3 sqrt(g)) [(I B_zeta - G B_theta) phi_h' + i B_s (G m_h + I n_h) phi_h]
             e^{i(m_h theta - n_h zeta)} e^{-i(j vartheta - k varphi)} >_orbit,
 
-with ``w = omega_zeta / v``, ``B_i = d_i |B|`` and ``v = omega / (|j iota - k| w)``.
+with ``w = omega_zeta / v``, ``B_i = d_i |B|`` and ``v = omega / (|j iota - k| w)``. Regularizations, all explicit: the
+passing-boundary layer ``boundary`` (pitches stop at ``(1 - boundary) / B_max``), the small-divisor ``guard`` of the orbit-angle
+inversion ``kappa / (kappa^2 + guard^2)``, the Gauss-Legendre ``nodes`` and the birth-edge width of the slowing-down
+distribution (``FastIons.birth_width``); gamma converges as each goes to zero (tests).
 
 Trapped and precessing particles are omitted (no bounce-averaged precession resonance).
 ``n > 0`` with a peaked density drives (``iota psi' > 0``).
@@ -38,12 +47,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .continuum import AMU, MU0
 from .eigen import _quad, global_matrices
 from .geometry import Geometry, _d_ds, surface_grid
 
 E = 1.602176634e-19
-AMU = 1.66053906660e-27
-MU0 = 4e-7 * np.pi
 
 
 @dataclass(frozen=True)
@@ -51,8 +59,10 @@ class FastIons:
     """Isotropic fast ions: ``density`` (m^-3, scalar or profile on ``s``), energies in eV.
 
     ``kind="maxwellian"`` uses ``temperature_ev``; ``kind="slowing_down"`` uses
-    ``F ~ 1/(v^3 + v_c^3)`` below ``birth_ev`` with ``critical_ev`` (the edge delta of
-    ``dF/dE`` at ``birth_ev`` is not included).
+    ``F ~ 1/(v^3 + v_c^3)`` below ``birth_ev`` with ``critical_ev``. The birth edge is smoothed
+    (``erfc`` over ``birth_width`` = 2% of ``v_b``) and ``dF/dE`` includes the smoothed edge, so ``F`` is normalized
+    to ``int F d^3v = 1`` with the smoothed edge and the edge drive is differentiable. Any other
+    ``kind`` raises ``ValueError``.
     """
 
     density: Any = 1.0e17
@@ -61,12 +71,17 @@ class FastIons:
     critical_ev: Any = 0.5e6
     mass_amu: Any = 2.01410178
     charge: Any = 1.0
+    birth_width: Any = 0.02
     kind: str = field(default="maxwellian", metadata={"static": True})
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("maxwellian", "slowing_down"):
+            raise ValueError(f"unknown FastIons kind {self.kind!r}: use 'maxwellian' or 'slowing_down'")
 
 
 jax.tree_util.register_dataclass(
     FastIons,
-    data_fields=["density", "temperature_ev", "birth_ev", "critical_ev", "mass_amu", "charge"],
+    data_fields=["density", "temperature_ev", "birth_ev", "critical_ev", "mass_amu", "charge", "birth_width"],
     meta_fields=["kind"],
 )
 
@@ -82,6 +97,8 @@ def growth_rate(
     sidebands: int = 3,
     helical: int = 1,
     nodes: int = 32,
+    boundary: Any = 0.0,
+    guard: Any = 1e-2,
     ntheta: int = 64,
     nzeta: int = 32,
     resolved: bool = False,
@@ -92,7 +109,8 @@ def growth_rate(
     ``(0, 1)`` as for :func:`fax.eigenmodes`. Resonances ``j = m + l``, ``|l| <= sidebands``,
     and ``k = n + k' nfp``, ``|k'| <= helical``, are summed. An axisymmetric case with
     ``helical = 0`` is exact with ``nzeta = 1``. ``resolved=True`` returns the resonances
-    ``(j, k)`` and the growth rate of each instead of their sum.
+    ``(j, k)`` and the growth rate of each instead of their sum. ``boundary`` and ``guard`` are the passing-boundary and
+    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2).
     """
     hm = np.asarray(harmonics, dtype=float)
     m, n = (jnp.asarray(hm[:, i])[:, None, None] for i in (0, 1))
@@ -105,17 +123,17 @@ def growth_rate(
     e = jnp.exp(1j * (m * g.theta - n * g.zeta)) / (g.B**3 * g.sqrt_g)[:, None]  # (S, H, T, Z)
     kernel = (col(geo.I) * Bz - col(geo.G) * Bt)[:, None] * e * _d_ds(phi, geo.s)[..., None, None]
     kernel = kernel + 1j * Bs[:, None] * (col(geo.G)[:, None] * m + col(geo.I)[:, None] * n) * e * phi[..., None, None]
-    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max a smooth upper bound (log-sum-exp)
+    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max is the exact sample maximum, so
+    # duplicated toroidal samples change nothing (a log-sum-exp bound shifts with the sample count)
     x, wx = (jnp.asarray(z) for z in np.polynomial.legendre.leggauss(nodes))
-    scale = 1e-3 * jnp.mean(g.B, axis=(1, 2), keepdims=True)
-    bmax = scale[..., 0] * jax.nn.logsumexp(g.B / scale, axis=(1, 2))[:, None]
-    lam = 0.5 * (x + 1.0) / bmax  # (S, L)
+    bmax = jnp.max(g.B, axis=(1, 2))[:, None]
+    lam = 0.5 * (x + 1.0) * (1.0 - boundary) / bmax  # (S, L)
     xi = jnp.sqrt(1.0 - lam[..., None, None] * g.B[:, None])  # (S, L, T, Z)
     h = 1.0 / (xi * g.B[:, None])
     hbar = jnp.mean(h, axis=(2, 3))
     kt, kz = (jnp.fft.fftfreq(k, 1.0 / k)[:, None] for k in (ntheta, nzeta))
     kappa = geo.iota[:, None, None, None] * kt + kz.T  # (iota d_theta + d_zeta) -> i kappa
-    chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + 1e-4)))
+    chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2)))
     weight = (0.5 * (1.0 + xi**2) * h / hbar[..., None, None])[:, :, None] * kernel[:, None]  # (S, L, H, T, Z)
     omega_hat = 1.0 / (jnp.abs(D)[:, None] * hbar)  # omega_zeta / v
     dens = jnp.asarray(ions.density) * jnp.ones_like(geo.s)
@@ -133,15 +151,17 @@ def growth_rate(
         kap = (j * geo.iota - k)[:, None]
         phase = jnp.exp(-1j * (kap[..., None, None] * chi + j * g.theta - k * g.zeta)[:, :, None])
         c = jnp.mean(weight * phase, axis=(-2, -1))  # (S, L, H)
-        C, N = jnp.sum(c, -1), jnp.sum(c * n[:, 0, 0], -1)
+        C = jnp.sum(c, -1)
         rate = jnp.maximum(jnp.abs(kap) * omega_hat, 1e-12)
         v = omega / rate
         dfde, f = _distribution(v, ions)
-        star = _d_ds(dens[:, None], geo.s) / (omega * ions.charge * E * (geo.iota * psi)[:, None])
-        q = dens[:, None] * dfde * jnp.abs(C) ** 2 + star * f * jnp.real(jnp.conj(C) * N)
+        star = j * _d_ds(dens[:, None], geo.s) / (omega * ions.charge * E * psi[:, None])
+        q = (dens[:, None] * dfde + star * f) * jnp.abs(C) ** 2
         return v**6 * q / (rate * omega_hat)
 
-    power = jnp.abs(psi) * jnp.sum(jax.lax.map(jax.checkpoint(resonance), jnp.asarray(pairs)) * wx / (2 * bmax), axis=-1)  # (P, S)
+    power = jnp.abs(psi) * jnp.sum(
+        jax.lax.map(jax.checkpoint(resonance), jnp.asarray(pairs)) * wx * (1.0 - boundary) / (2 * bmax), axis=-1
+    )  # (P, S)
     zero = jnp.zeros((len(pairs), 1))
     radial = _integrate(jnp.concatenate([zero, power, zero], 1), jnp.concatenate([zero[0], geo.s, jnp.ones(1)]))
     inertia = global_matrices(geo, hm, mass_density, ntheta=ntheta, nzeta=nzeta)[1]
@@ -167,10 +187,12 @@ def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:
         f = (m / (2 * jnp.pi * t)) ** 1.5 * jnp.exp(-0.5 * m * v**2 / t)
         return -f / t, f
     vb, vc = jnp.sqrt(2 * ions.birth_ev * E / m), jnp.sqrt(2 * ions.critical_ev * E / m)
-    norm = 3.0 / (4 * jnp.pi * jnp.log1p((vb / vc) ** 3))
+    # int 4 pi u^2 du erfc((u - vb) / w) / 2 / (u^3 + vc^3) = 4 pi / 3 E[ln((u^3 + vc^3) / vc^3)], u ~ N(vb, w^2 / 2) (by parts)
+    t, wt = (jnp.asarray(z) for z in np.polynomial.hermite.hermgauss(24))
+    norm = 3.0 / (4 * jnp.pi * (jnp.sum(wt * jnp.log1p((vb * (1 + ions.birth_width * t) / vc) ** 3)) / jnp.sqrt(jnp.pi)))
 
     def shape(u: jax.Array) -> jax.Array:  # birth edge smoothed over 2% of v_b so the edge drive stays differentiable
-        return norm * 0.5 * jax.scipy.special.erfc((u - vb) / (0.02 * vb)) / (u**3 + vc**3)
+        return norm * 0.5 * jax.scipy.special.erfc((u - vb) / (ions.birth_width * vb)) / (u**3 + vc**3)
 
     f, dfdv = jax.jvp(shape, (v,), (jnp.ones_like(v),))
     return dfdv / (m * v), f

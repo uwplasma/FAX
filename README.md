@@ -4,126 +4,105 @@
 [![Docs](https://readthedocs.org/projects/fax/badge/?version=latest)](https://fax.readthedocs.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-FAX is a lean, differentiable JAX code for shear-Alfvén physics in
-stellarators. It computes shear-Alfvén continua, AE3D-form global Alfvén
-eigenmodes and a perturbative fast-ion drive, and differentiates all of them
-with respect to profiles and, through [vmex](https://github.com/uwplasma/vmex)
-and [booz_xform_jax](https://github.com/uwplasma/booz_xform_jax), the VMEC
-plasma boundary.
+FAX is a lean JAX code for shear-Alfvén physics in stellarators: the continuum, AE3D-form global modes and a perturbative
+fast-ion drive, with first-order derivatives with respect to profiles and, through VMEX, the VMEC boundary.
 
 <p align="center">
   <img src="docs/_static/ctok_eigenmodes_continuum.png" width="44%" alt="CTOK continuum and global modes">
   <img src="docs/_static/koenies_tae_drive.png" width="48%" alt="Könies TAE drive">
 </p>
 
-*Left: the n = 2 continuum of the CTOK tokamak with the six global modes
-nearest 384 kHz (red). Right: fast-ion growth rate of the Könies et al. (2018)
-ITPA TAE against the published zero-Larmor-radius band.*
+*Left: the n = 2 CTOK continuum with the six global modes nearest 384 kHz (red). Right: the passing-only drive of the Könies et al. (2018) TAE.*
 
-## What it does
+## Scope
 
-- **Continuum.** On each Boozer surface, the Galerkin form of the low-β
-  continuum equation (Spong, Sanchez & Weller 2003), $K x = \omega^2 M x$, with
-  FFT-exact angle averages and STELLGAP weighting. Gaps give the TAE, EAE, MAE
-  and HAE windows.
-- **Global modes.** The AE3D weak form (Spong, D'Azevedo & Todo 2010) with the
-  full metric and the magnetic-shear term, linear radial finite elements and
-  axis regularity, giving a block-tridiagonal $F y = \omega^2 G y$ solved near
-  a target by shift-invert with a block Thomas factorization ($O(N H^3)$).
-- **Gradients.** Hellmann–Feynman eigenvalue derivatives
-  $\delta\lambda = y^\dagger(\delta F - \lambda\,\delta G)y$, cluster means
-  that stay smooth through crossings, and vmex's implicit-function derivative
-  of the converged equilibrium.
-- **Drive.** The perturbative growth rate $\gamma_h = -P/2W$ for zero-orbit-width
-  passing fast ions (Maxwellian or slowing-down) in Boozer geometry, with the
-  drift from $\partial|B|$, $G$ and $I$, the toroidal and helical sideband
-  resonances $\omega = |(m + \ell)\iota - (n + kN_{fp})|\,\omega_\zeta$, an exact
-  resonance integral, plus bulk-ion Landau damping.
+| Supported | Not supported |
+|---|---|
+| Low-β continuum on each Boozer surface (STELLGAP form) | Sound coupling, so no BAE or BAAE |
+| AE3D-form reduced ideal-MHD global modes, signed $\omega^2$ | Continuum damping and electron damping |
+| `finite_beta=True`: restricted $J_\parallel$ and pressure terms (experimental) | A full-MHD or compressional model |
+| Drive of a fixed mode: zero orbit width, passing ions only | Trapped particles, finite orbit width, finite Larmor radius |
+
+The drive is perturbative and valid up to about 200 keV in the Könies case ($\gamma/\omega \le 4\%$). It is about 0.6 of the CAS3D-K
+zero-orbit-width curve, plausibly the missing trapped share; that attribution is not established. Derivatives are first order and
+are NaN unless the eigensolve converged and its selection is not a tie.
 
 ## Install
 
-Python 3.10 or newer.
+Python 3.10 or newer, JAX 0.4.38 or newer, `solvax>=0.36.0`. FAX is on PyPI as **`alfvex`**; the code is imported as `fax`.
+FAX will soon be renamed ALFVEX everywhere (repository, import and command line). Do not `pip install fax`: that is an unrelated package.
 
 ```bash
-pip install uwplasma-fax              # core
-pip install "uwplasma-fax[vmex]"      # VMEC solves and boundary gradients (Python >= 3.11)
+pip install alfvex            # core
+pip install "alfvex[vmex]"    # VMEC solves and boundary gradients (Python >= 3.11)
+pip install "alfvex[plot]"    # matplotlib, for the figure examples
 ```
 
-## Run
+From a clone, `pip install .` (with the same extras) installs the development version.
 
-From the command line, with a TOML case:
+## Quickstart
 
-```bash
-fax run examples/ctok_continuum.toml --plot     # results.npz, case.json, continuum.png
-fax run examples/ctok_eigenmodes.toml --plot    # six global modes nearest 384 kHz
-```
-
-From Python:
+This runs from an installed wheel with no data files: a continuum, a global TAE and one gradient on the analytic Könies et al. (2018) torus.
 
 ```python
-import jax, fax
+import jax, jax.numpy as jnp, fax
 
-geo = fax.read_boozmn("tests/data/boozmn_ctok.nc")
-harmonics = fax.mode_family(2, 12)  # (m, n) for m = 0..12, n = 2
-rho = fax.mass_density(1e19, ion_mass_amu=2.0)
+s = (jnp.arange(200) + 0.5) / 200
+geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
+harmonics, rho = fax.mode_family(6, 16, 5), fax.mass_density(2e19, 1.00727647)
 f_hz = fax.continuum(geo, harmonics, rho)  # (surfaces, harmonics)
-center_hz, width_hz = fax.gaps(f_hz)
-modes = fax.eigenmodes(geo, harmonics, rho, target_hz=384e3, count=6)
-dfdrho = jax.grad(lambda r: fax.frequency_hz(geo, harmonics, r, 2, 3, target_hz=384e3, count=6))(rho)
+modes = fax.eigenmodes(geo, harmonics, rho, target_hz=6.46e4, count=3, ntheta=32, nzeta=4)
+print(modes.frequencies_hz[-1], modes.status.converged)  # the TAE, 64.63 kHz
+f = lambda r: fax.frequency_hz(geo, harmonics, r, 2, 3, target_hz=6.46e4, count=3, ntheta=32, nzeta=4)
+print(jax.grad(f)(rho))  # equals -f / (2 rho)
 ```
 
-## Examples
+The command line runs the continuum and global-mode tasks from a TOML case; the drive, objectives and boundary gradients are Python only.
 
-| Example | What it shows |
+## Examples (checkout only)
+
+These read files in the repository or need an extra; each has editable settings at the top and no command-line parsing.
+
+| File | Needs | Shows |
+|---|---|---|
+| `examples/quickstart.py` | nothing | the quickstart above |
+| `examples/ctok_continuum.toml`, `ctok_eigenmodes.toml` | `tests/data` | `fax run <case> --plot` for CTOK |
+| `examples/qa_continuum.toml` | `vmex` | VMEC solve, Boozer transform, continuum |
+| `examples/koenies_tae_drive.py` | `plot` | drive against fast-ion temperature |
+| `examples/boundary_gradient.py` | `vmex` | gradient with respect to VMEC boundary coefficients |
+| `examples/optimize_alfven.py` | `vmex`, `plot` | QS plus Paul's continuum cost (QH) or a classified gap-mode window (QA) |
+| `examples/knyazev_qa.py` | Zenodo archive | rebuilds the offline fixture and the AE3D comparison |
+
+## Evidence
+
+| Check | Result |
 |---|---|
-| `examples/ctok_continuum.toml` | STELLGAP CTOK continuum from a `boozmn` file |
-| `examples/ctok_eigenmodes.toml` | AE3D-form global modes by shift-invert |
-| `examples/qa_continuum.toml` | precise QA: vmex solve → booz_xform_jax → continuum |
-| `examples/boundary_gradient.py` | gradient of a frequency objective with respect to VMEC boundary coefficients |
-| `examples/optimize_alfven.py` | QS + aspect + Paul's continuum-gap objective (QH) or a global-mode window (QA), `least_squares` with exact Jacobians |
-| `examples/koenies_tae_drive.py` | fast-ion growth rate of the Könies ITPA TAE vs temperature |
+| STELLGAP CTOK continuum (97 surfaces) | 6.3e-3 mean, 6.6e-3 p95 relative |
+| AE3D v31 CTOK, six global modes | within 1.4% |
+| AE3D CTOK TAE, 337.9 kHz | not reproduced. On identical input three $\iota'$ terms of AE3D's bending blocks differ from the energy (pinned block comparison; real-space quadrature FAX 0.1–0.3%, AE3D 2–37%). The $J_\parallel$ blocks still disagree, cause open. Not reported upstream |
+| Knyazev et al. (2026) precise QA | continuum 3.0e-3 mean from STELLGAP. The AE3D global mode (30.31 kHz) is not a FAX eigenmode (overlap 0.18, 5.1% below); cause unresolved |
+| Könies et al. (2018) TAE (n = 6) | 4.061e5 rad/s (CAS3D 4.01e5, GYGLES 4.13e5), converged to 1e-4 |
+| Drive, 100/200/300/400 keV | 4.29/16.39/32.72/64.48 ×10³ s⁻¹; 0.58–0.60 of CAS3D-K ZOW at 82–191 keV (content unmatched, not a validation) |
+| Gradients | fixed-geometry AD vs finite differences to about 1e-9 at best; LP-QA gap-mode shift of 4 kHz predicted to 0.05 kHz, resolution budget 0.13 kHz; the $m = 1$ gauge leaves a 1e-2 floor on `zs11`, not closed |
 
-## Validation
+The [validation page](https://fax.readthedocs.io/en/latest/validation.html) has every gate, its test and what is not done.
 
-| Gate | Result |
-|---|---|
-| Uniform field, $\omega = \lvert n-m\iota\rvert v_A/R$ | exact to 1e-9 |
-| STELLGAP CTOK continuum (97 surfaces, n = 2, m = 0–12) | mean 6.3e-3, p95 6.6e-3 relative |
-| Uniform-field global spectrum fills $[\omega_A(0), \omega_A(1)]$ | edges within $0.5/N$, singular modes of width $\propto 1/N$ |
-| AE3D CTOK global modes (n = 2, m = 0–12) | 6 modes within 1.4%; AE3D's TAE is off by its $\iota'$ sign error (checked by real-space quadrature to 0.3%) |
-| Könies et al. 2018 ITPA TAE (n = 6) | $\omega$ = 4.061e5 rad/s (CAS3D 4.01e5, GYGLES 4.13e5), converged to 1e-4 |
-| Könies ITPA with $p(s)$, vmex equilibrium, `finite_beta=True` | 3.947e5 rad/s (4.127e5 without the $J_\parallel$ and pressure terms) |
-| Könies et al. 2018 drive, 100/200/300 keV | 4.37/16.6/33.2 vs 8–10/25–33/38–43 ×10³ s⁻¹ (ZOW, passing only; old circular model within 4%) |
-| Eigenvalue and drive gradients vs finite differences | 1e-5 (drive: profiles, $\omega$, every geometry leaf, the mode) |
-| LP-QA drive through vmex geometry and shift-invert eigenvectors | AD vs FD ≤ 1e-4; helical sidebands present (dominant in LP-QH) |
+## Ecosystem
 
-The compiled CTOK continuum takes 0.04 s on one CPU core (STELLGAP 0.8 s); the
-six-mode CTOK shift-invert takes 0.07 s. Not yet included: sound and
-fast-wave coupling, trapped particles and finite orbit width in the drive. Details are on the
-[validation page](https://fax.readthedocs.io/en/latest/validation.html).
+[SOLVAX](https://github.com/uwplasma/SOLVAX) provides the generalized eigensolver and its implicit derivatives;
+[VMEX](https://github.com/uwplasma/vmex) the equilibrium and its implicit derivative;
+[booz_xform_jax](https://github.com/uwplasma/booz_xform_jax) the Boozer transform. ESSOS orbit transport of FAX modes is planned, not implemented.
 
-## Documentation
+## Documentation and testing
 
-[fax.readthedocs.io](https://fax.readthedocs.io): getting started and the TOML
-reference, tutorials, full derivations, validation and the API.
-
-## Testing
+[fax.readthedocs.io](https://fax.readthedocs.io): getting started and TOML reference, tutorials, theory, validation, API with its derivative contract.
 
 ```bash
 pip install -e ".[dev,vmex]"
-python -m pytest -q          # fast suite; add -m '' for the slow vmex end-to-end tests
-ruff check . && ruff format --check .
-sphinx-build -W -b html docs docs/_build/html
+python -m pytest -q -m 'not scheduled'
+ruff check . && ruff format --check . && sphinx-build -W -b html docs docs/_build/html
 ```
 
-## Contributing and citing
+## Citing and license
 
-Issues and pull requests are welcome; every physics change needs a test against
-an analytic result or a published number. If you use FAX, please cite this
-repository and Spong, Sanchez & Weller (2003), Spong, D'Azevedo & Todo (2010)
-and Könies et al. (2018); see the
-[references](https://fax.readthedocs.io/en/latest/references.html).
-
-## License
-
-MIT.
+Cite the repository through [`CITATION.cff`](CITATION.cff) and the papers whose models FAX implements ([references](https://fax.readthedocs.io/en/latest/references.html)). MIT license.

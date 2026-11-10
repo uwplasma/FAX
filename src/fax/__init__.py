@@ -10,6 +10,8 @@ from .eigen import eigenmodes, eigenvalue_mean, frequency_hz, global_matrices
 from .geometry import Geometry, circular_torus, from_vmec_input, from_wout, read_boozmn, surface_grid
 from .io import load, run
 from .objectives import (
+    ModeClass,
+    classify_modes,
     compression_harmonics,
     continuum_cost,
     design_frequencies,
@@ -26,11 +28,13 @@ from .objectives import (
     window_risk,
 )
 
-__version__ = "0.1.0"
+__version__ = "1.0.1"
 __all__ = [
     "FastIons",
     "Geometry",
+    "ModeClass",
     "circular_torus",
+    "classify_modes",
     "compression_harmonics",
     "continuum",
     "continuum_cost",
