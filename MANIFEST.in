@@ -1,0 +1,3 @@
+include CITATION.cff
+graft tests
+graft examples

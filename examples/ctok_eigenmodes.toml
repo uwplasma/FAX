@@ -1,0 +1,20 @@
+# Global AE3D-form eigenmodes of CTOK nearest 384 kHz (AE3D's m = 2, 3 global mode).
+[geometry]
+source = "boozmn"
+path = "../tests/data/boozmn_ctok.nc"
+
+[modes]
+n = [2]
+m_max = 12
+
+[plasma]
+density = 1e19
+ion_mass = 2.0
+
+[run]
+task = "eigenmodes"
+output = "../outputs/ctok_eigenmodes"
+ntheta = 32
+nzeta = 4
+target_khz = 384.0
+count = 6

@@ -1,0 +1,16 @@
+# STELLGAP CTOK test case: n = 2 continuum in a circular tokamak, deuterium at 1e19 m^-3.
+[geometry]
+source = "boozmn"
+path = "../tests/data/boozmn_ctok.nc"
+
+[modes]
+n = [2]
+m_max = 12
+
+[plasma]
+density = 1e19
+ion_mass = 2.0
+
+[run]
+task = "continuum"
+output = "../outputs/ctok_continuum"

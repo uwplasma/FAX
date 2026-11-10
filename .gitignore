@@ -13,3 +13,4 @@ dist/
 docs/_build/
 outputs/
 *.nc
+!tests/data/*.nc

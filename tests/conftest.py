@@ -1,7 +1,14 @@
-"""Pytest configuration for validation-grade numerical checks."""
-
-from __future__ import annotations
+"""pytest >= 9.2 walks ``approx`` expected values with ``.flat``, which JAX arrays do not implement: compare via NumPy."""
 
 import jax
+import numpy as np
+import pytest
 
-jax.config.update("jax_enable_x64", True)
+_approx = pytest.approx
+
+
+def _numpy_approx(expected, *args, **kwargs):
+    return _approx(np.asarray(expected) if isinstance(expected, jax.Array) else expected, *args, **kwargs)
+
+
+pytest.approx = _numpy_approx

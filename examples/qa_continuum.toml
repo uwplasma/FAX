@@ -1,0 +1,16 @@
+# Precise QA (Landreman & Paul 2022, low resolution): vmex solve -> booz_xform_jax -> continuum.
+[geometry]
+source = "vmec"
+path = "data/input.LandremanPaul2021_QA_lowres"
+mboz = 8
+nboz = 8
+ns = 16
+surfaces = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
+[modes]
+n = [0, 2, -2]
+m_max = 6
+
+[run]
+task = "continuum"
+output = "../outputs/qa_continuum"

@@ -1,0 +1,52 @@
+name: Scheduled
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gradients:
+    name: Frozen-path gradients and resolution sweeps
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev,vmex]"
+      - run: python -m pytest -q -m scheduled -s
+
+  stacks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Minimum, Python 3.10, JAX 0.4.38, SOLVAX 0.36.0
+            python: "3.10"
+            extra: test
+            pins: "jax==0.4.38 jaxlib==0.4.38 solvax==0.36.0 'numpy<2'"
+          - name: Minimum vmex, Python 3.11, vmex 0.11.10, JAX 0.9.2
+            python: "3.11"
+            extra: test,vmex
+            pins: "vmex==0.11.10 jax==0.9.2 jaxlib==0.9.2 solvax==0.36.0"
+            # The slow suite exceeds the 2 h limit on this stack: fast suite plus one end-to-end vmex solve.
+            run: python -m pytest -q -m 'not scheduled and not slow' && python -m pytest -q -m slow tests/test_vmex.py::test_vmec_input_to_continuum
+          - name: Latest, Python 3.13
+            python: "3.13"
+            extra: test,vmex
+            pins: "--upgrade"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[${{ matrix.extra }}]" ${{ matrix.pins }}
+      - run: ${{ matrix.run || 'python -m pytest -q -m ''not scheduled''' }}
