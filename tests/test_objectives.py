@@ -12,7 +12,7 @@ import fax
 from fax.objectives import Design, _reject, classify_modes
 
 DATA = Path(__file__).parent / "data"
-HARMONICS, RHO = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.0)
+HARMONICS, RHO = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.00727647)
 OPTIONS = dict(ntheta=16, nzeta=4, target_hz=6.46e4, count=4, iters=100)
 
 

@@ -36,7 +36,8 @@ def test_matrices_are_hermitian_and_resolution_converged():
 def test_stellgap_ctok_parity():
     """Same boozmn_ctok.nc and STELLGAP inputs (n = 2, m = 0..12, deuterium at 1e19 m^-3)."""
     geo = fax.read_boozmn(DATA / "boozmn_ctok.nc")
-    khz = np.asarray(jax.jit(lambda g: fax.continuum(g, fax.mode_family(2, 12), fax.mass_density(1e19, 2.0)))(geo)) / 1e3
+    rho = fax.mass_density(1e19, 2 * 1.00727647)  # two proton masses
+    khz = np.asarray(jax.jit(lambda g: fax.continuum(g, fax.mode_family(2, 12), rho))(geo)) / 1e3
     ref = np.load(DATA / "stellgap_ctok_continuum.npz")
     # STELLGAP averages half-mesh rows k, k+1 onto full surface k = 2..ns-1 but labels it
     # k/(ns-1) (stellgap rho = nsurf/nsurf_max), one cell outward of the physical (k-1)/(ns-1).
@@ -142,6 +143,10 @@ def test_global_matrices_validate_density_and_surfaces():
         with pytest.raises(ValueError, match="strictly inside"):
             global_matrices(replace(geo, s=s), h, 3.4e-8, 16, 4)
     assert jnp.all(jnp.isfinite(dense(global_matrices(geo, h, 3.4e-8, 16, 4)[0])))
+
+
+def test_mass_density_is_in_atomic_mass_units():
+    assert float(fax.mass_density(1e19, 2.01410178)) == pytest.approx(1e19 * 2.01410178 * 1.66053906660e-27, rel=1e-12)
 
 
 def test_generalized_eigh_matches_explicit_inverse_and_residual():

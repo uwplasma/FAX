@@ -98,7 +98,7 @@ def test_koenies_2018_tae_growth_rates():
     large-aspect-ratio model gave 4.4, 16.6, 33.1, 65 x10^3/s and the Boozer form with n/iota in the
     gradient term 4.33, 16.52, 32.94, 64.85."""
     gam = np.array([tae_gamma(t) for t in (100.0, 200.0, 300.0, 400.0)])
-    np.testing.assert_allclose(gam, [4.259e3, 16.27e3, 32.48e3, 64.02e3], rtol=1e-3)
+    np.testing.assert_allclose(gam, [4.290e3, 16.39e3, 32.72e3, 64.48e3], rtol=1e-3)
     np.testing.assert_allclose(gam, [4.4e3, 16.6e3, 33.1e3, 65e3], rtol=0.04)  # O(1/n) labelling change of the gradient term, ~1.5%
     assert 0.8 * 40e3 < gam[2] < 1.2 * 40e3
 
@@ -165,7 +165,7 @@ def test_slowing_down_gradient_is_finite():
 def test_ctok_global_tae_drive():
     """Full chain on CTOK: the FAX TAE (272.8 kHz, n = 2) from the shift-invert solve, then its drive by peaked deuterons."""
     geo = fax.read_boozmn(Path(__file__).parent / "data" / "boozmn_ctok.nc").full_mesh()
-    harmonics, rho = fax.mode_family(2, 12), fax.mass_density(1e19, 2.0)
+    harmonics, rho = fax.mode_family(2, 12), fax.mass_density(1e19, 2 * 1.00727647)
     ev = fax.eigenmodes(geo, harmonics, rho, target_hz=272.8e3, count=4)
     i = int(jnp.argmin(jnp.abs(ev.frequencies_hz - 272.8e3)))
     assert ev.frequencies_hz[i] == pytest.approx(272.8e3, rel=1e-3)

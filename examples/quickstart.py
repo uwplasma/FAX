@@ -12,7 +12,7 @@ import fax
 # settings
 N_SURFACES, N_TOROIDAL, M_MIN, M_MAX = 200, 6, 5, 16
 TARGET_HZ, N_MODES = 6.46e4, 3  # shift-invert target and the number of modes kept; the TAE is the highest of the three
-DENSITY_M3, ION_MASS_AMU = 2e19, 1.0
+DENSITY_M3, ION_MASS_AMU = 2e19, 1.00727647  # a proton
 GRID = dict(ntheta=32, nzeta=4)
 
 s = (jnp.arange(N_SURFACES) + 0.5) / N_SURFACES

@@ -100,7 +100,7 @@ The harmonics are every `(m, n)` with `m_min <= m <= m_max` and `n` in the list
 | Key | Default | Meaning |
 |---|---|---|
 | `density` | `1e19` | ion density in m⁻³ (uniform) |
-| `ion_mass` | `1.0` | ion mass in proton masses |
+| `ion_mass` | `1.0` | ion mass in atomic mass units (a proton is 1.00727647) |
 
 ### `[run]`
 

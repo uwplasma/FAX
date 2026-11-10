@@ -49,7 +49,7 @@ import jax, jax.numpy as jnp, fax
 
 s = (jnp.arange(200) + 0.5) / 200
 geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
-harmonics, rho = fax.mode_family(6, 16, 5), fax.mass_density(2e19, 1.0)
+harmonics, rho = fax.mode_family(6, 16, 5), fax.mass_density(2e19, 1.00727647)
 f_hz = fax.continuum(geo, harmonics, rho)  # (surfaces, harmonics)
 modes = fax.eigenmodes(geo, harmonics, rho, target_hz=6.46e4, count=3, ntheta=32, nzeta=4)
 print(modes.frequencies_hz[-1], modes.status.converged)  # the TAE, 64.63 kHz
@@ -82,7 +82,7 @@ These read files in the repository or need an extra; each has editable settings 
 | AE3D CTOK TAE, 337.9 kHz | not reproduced. On identical input three $\iota'$ terms of AE3D's bending blocks differ from the energy (pinned block comparison; real-space quadrature FAX 0.1–0.3%, AE3D 2–37%). The $J_\parallel$ blocks still disagree, cause open. Not reported upstream |
 | Knyazev et al. (2026) precise QA | continuum 3.0e-3 mean from STELLGAP. The AE3D global mode (30.31 kHz) is not a FAX eigenmode (overlap 0.18, 5.1% below); cause unresolved |
 | Könies et al. (2018) TAE (n = 6) | 4.061e5 rad/s (CAS3D 4.01e5, GYGLES 4.13e5), converged to 1e-4 |
-| Drive, 100/200/300/400 keV | 4.26/16.27/32.48/64.02 ×10³ s⁻¹; 0.58–0.60 of CAS3D-K ZOW at 82–191 keV (content unmatched, not a validation) |
+| Drive, 100/200/300/400 keV | 4.29/16.39/32.72/64.48 ×10³ s⁻¹; 0.58–0.60 of CAS3D-K ZOW at 82–191 keV (content unmatched, not a validation) |
 | Gradients | fixed-geometry AD vs finite differences to about 1e-9 at best; LP-QA gap-mode shift of 4 kHz predicted to 0.05 kHz, resolution budget 0.13 kHz; the $m = 1$ gauge leaves a 1e-2 floor on `zs11`, not closed |
 
 The [validation page](https://fax.readthedocs.io/en/latest/validation.html) has every gate, its test and what is not done.

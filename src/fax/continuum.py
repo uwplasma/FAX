@@ -23,7 +23,7 @@ from jax.scipy.linalg import solve_triangular
 from .geometry import Geometry, check, surface_grid
 
 MU0 = 4.0e-7 * jnp.pi
-PROTON_MASS = 1.67262192369e-27
+AMU = 1.66053906660e-27
 
 
 class Matrices(NamedTuple):
@@ -34,8 +34,8 @@ class Matrices(NamedTuple):
 
 
 def mass_density(n_ion: Any, ion_mass_amu: float = 1.0) -> jax.Array:
-    """Ion mass density ``rho = n_i m_i`` in kg/m^3 (ion mass in proton masses)."""
-    return jnp.asarray(n_ion) * ion_mass_amu * PROTON_MASS
+    """Ion mass density ``rho = n_i m_i`` in kg/m^3 (ion mass in atomic mass units)."""
+    return jnp.asarray(n_ion) * ion_mass_amu * AMU
 
 
 def mode_family(n: int | tuple[int, ...], m_max: int, m_min: int = 0) -> jax.Array:

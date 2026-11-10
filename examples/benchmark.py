@@ -73,11 +73,11 @@ def build(kind, N, H):
     """``(geometry, harmonics, density, target Hz, grid)`` of a case."""
     if kind == "ctok":
         geo = fax.read_boozmn(ROOT / "tests" / "data" / "boozmn_ctok.nc").full_mesh()
-        return geo, fax.mode_family(2, 12), fax.mass_density(1e19, 2.0), 384e3, dict(ntheta=32, nzeta=4)
+        return geo, fax.mode_family(2, 12), fax.mass_density(1e19, 2 * 1.00727647), 384e3, dict(ntheta=32, nzeta=4)
     if kind == "koenies":  # Koenies et al. (2018) ITPA TAE, n = 6, q = 1.71 + 0.16 r^2; m = 5 .. 4 + H on a grid that resolves them
         s = (jnp.arange(N) + 0.5) / N
         geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
-        return geo, fax.mode_family(6, 4 + H, 5), fax.mass_density(2e19, 1.0), 6.46e4, dict(ntheta=32 * -(-H // 12), nzeta=4)
+        return geo, fax.mode_family(6, 4 + H, 5), fax.mass_density(2e19, 1.00727647), 6.46e4, dict(ntheta=32 * -(-H // 12), nzeta=4)
     from knyazev_qa import RHO, geometry, load  # examples/ is on sys.path
 
     fx = load()

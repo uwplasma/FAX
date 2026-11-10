@@ -47,12 +47,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .continuum import AMU, MU0
 from .eigen import _quad, global_matrices
 from .geometry import Geometry, _d_ds, surface_grid
 
 E = 1.602176634e-19
-AMU = 1.66053906660e-27
-MU0 = 4e-7 * np.pi
 
 
 @dataclass(frozen=True)
