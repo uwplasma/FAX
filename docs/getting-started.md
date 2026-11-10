@@ -40,6 +40,7 @@ The command line runs two tasks from a TOML case: the continuum and the global m
 ```console
 fax run case.toml            # writes <run.output>/results.npz and case.json
 fax run case.toml --plot     # also continuum.png (and modes.png for eigenmodes); needs the plot extra
+fax run case.toml --cache    # persists JAX compilations in ~/.cache/fax/jax (--cache DIR for another); later runs skip them
 fax plot outputs/case        # figures for an existing results folder
 ```
 

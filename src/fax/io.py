@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jax
 import numpy as np
 
 try:
@@ -117,9 +118,15 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser("run", help="run a TOML case")
     run_parser.add_argument("case")
     run_parser.add_argument("--plot", action="store_true", help="also write figures")
+    run_parser.add_argument(
+        "--cache", nargs="?", const="~/.cache/fax/jax", help="persist JAX compilations in DIR (default ~/.cache/fax/jax)"
+    )
     sub.add_parser("plot", help="plot a results folder").add_argument("folder")
     args = parser.parse_args(argv)
     if args.command == "run":
+        if args.cache:
+            jax.config.update("jax_compilation_cache_dir", str(Path(args.cache).expanduser()))
+            jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)  # the many small op-by-op compiles dominate
         out = run(args.case)
         folder = load(args.case)["run"]["output"]
         print(f"{Path(args.case).name}: {out['frequencies_hz'].shape} frequencies -> {folder}")
