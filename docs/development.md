@@ -19,7 +19,7 @@ Three tiers, selected by two markers (`slow`, `scheduled`) and the workflow that
 
 | Tier | Contents | Runs |
 |---|---|---|
-| PR | analytic and contract tests (unmarked) in the Python 3.10–3.13 matrix and on the oldest stack (Python 3.10, JAX 0.4.38, SOLVAX 0.32.1); `slow` (vmex solves, 64-harmonic AE3D band) added in the coverage job; the installed-wheel smoke test; lint, coverage ≥ 95% (statements and branches, `-m 'not scheduled'`), docs, CITATION.cff | every PR and push (`tests.yml`) |
+| PR | analytic and contract tests (unmarked) in the Python 3.10–3.13 matrix and on the oldest stack (Python 3.10, JAX 0.4.38, SOLVAX 0.36.0); `slow` (vmex solves, 64-harmonic AE3D band) added in the coverage job; the installed-wheel smoke test; lint, coverage ≥ 95% (statements and branches, `-m 'not scheduled'`), docs, CITATION.cff | every PR and push (`tests.yml`) |
 | Scheduled | `scheduled`: frozen-path gradients, resolution budgets, gauge floors; the same minimum stack with the `slow` tests, the minimum vmex stack (Python 3.11, vmex 0.11.10, JAX 0.9.2) and the latest stack (Python 3.13, everything upgraded) | weekly and on demand (`scheduled.yml`) |
 | Release | external comparisons and high-resolution runs; see the checklist below | by hand before a tag |
 
@@ -57,7 +57,7 @@ Release tier, to be run and recorded in the release notes before every tag (not 
    publishing (environment `pypi`). Update `version` and `date-released` in `CITATION.cff` in the same commit.
 
 CI runs the PR matrix on Python 3.10–3.13 and the vmex path, lint, coverage and docs on Python 3.12. SOLVAX comes
-from PyPI (0.32.1 or newer). Keep
+from PyPI (0.36.0 or newer). Keep
 Python 3.10 working (the `tomli` fallback, no newer-JAX-only functions).
 
 Coverage is measured with branches on the PR-tier coverage run (unmarked and `slow` tests,

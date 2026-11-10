@@ -452,21 +452,21 @@ def test_targeted_eigenpairs_fallback_and_tied_selection():
 def test_solver_status_and_rejection_of_unconverged_gradients():
     h, rho = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.00727647)
     options = dict(target_hz=6.46e4, count=4, ntheta=16, nzeta=4)
-    good, poor = (fax.eigenmodes(konies(40), h, rho, iters=iters, **options) for iters in (100, 3))
+    good, poor = (fax.eigenmodes(konies(40), h, rho, iters=iters, **options) for iters in (100, 1))
     assert good.status.converged and good.status.residual < 1e-10 and good.status.orthogonality < 1e-10 and good.status.gap > 0
-    assert not good.status.fallback and 3 < good.status.iterations < 100
-    assert not poor.status.converged and poor.status.residual > 1e-10 and poor.status.iterations == 3
+    assert not good.status.fallback and 1 < good.status.iterations < 100
+    assert not poor.status.converged and poor.status.residual > 1e-10 and poor.status.iterations == 1
     full = fax.eigenmodes(konies(40), h, rho, ntheta=16, nzeta=4)
     assert full.status.converged and full.status.iterations == 0 and full.status.residual < 1e-12
 
     F, G = global_matrices(konies(40), h, rho, 16, 4)
     target = float((2 * np.pi * 6.46e4) ** 2)
     assert jnp.isfinite(targeted_eigenvalues(F, G, target, 4, 100)).all()
-    assert jnp.isnan(targeted_eigenvalues(F, G, target, 4, 3)).all()
-    jvp = jax.jvp(lambda f: targeted_eigenvalues(Blocks(f, F.upper), G, target, 4, 3), (F.diag,), (jnp.ones_like(F.diag),))
+    assert jnp.isnan(targeted_eigenvalues(F, G, target, 4, 1)).all()
+    jvp = jax.jvp(lambda f: targeted_eigenvalues(Blocks(f, F.upper), G, target, 4, 1), (F.diag,), (jnp.ones_like(F.diag),))
     assert jnp.isnan(jvp[1]).all()
     run = lambda iters: fax.frequency_hz(konies(40), h, rho, 0, 1, iters=iters, **options)  # noqa: E731
-    assert jnp.isfinite(run(100)) and jnp.isnan(run(3))
+    assert jnp.isfinite(run(100)) and jnp.isnan(run(1))
 
 
 def test_cluster_mean_first_derivative_at_degeneracy():

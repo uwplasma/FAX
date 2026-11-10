@@ -29,7 +29,7 @@ are NaN unless the eigensolve converged and its selection is not a tie.
 
 ## Install
 
-Python 3.10 or newer, JAX 0.4.38 or newer, `solvax>=0.32.1`. FAX is on PyPI as **`alfvex`**; the code is imported as `fax`.
+Python 3.10 or newer, JAX 0.4.38 or newer, `solvax>=0.36.0`. FAX is on PyPI as **`alfvex`**; the code is imported as `fax`.
 FAX will soon be renamed ALFVEX everywhere (repository, import and command line). Do not `pip install fax`: that is an unrelated package.
 
 ```bash
