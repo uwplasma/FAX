@@ -33,7 +33,7 @@ passing-only and perturbative (valid to about 200 keV in the Könies case). Ever
 | Fu–Van Dam Maxwellian scaling and closed-form ZOW coefficient (weak toroidicity), flat and with a density gradient (the gradient term carries $j$ = 11, 10) | `test_fu_van_dam_maxwellian_scaling` | 1e-3 |
 | Slowing-down $\int F\,d^3v = 1$ with the smoothed edge; duplicated toroidal samples | `test_slowing_down_is_normalized_with_its_smoothed_edge`, `test_duplicated_toroidal_samples_leave_the_drive_unchanged` | 1e-6; 1e-10 |
 | Elliptic two-mode gap, full width $2f_0\lvert c\rvert$ | `test_elliptic_two_mode_gap_has_full_width_two_f0_c` | 1e-6 |
-| Drive vs Könies 2018 (Boozer form of the circular model) | `test_koenies_2018_tae_growth_rates` | 4.26, 16.27, 32.48, 64.02 ×10³ s⁻¹ (pinned 1e-3); old circular model within 4% |
+| Drive vs Könies 2018 (Boozer form of the circular model) | `test_koenies_2018_tae_growth_rates` | 4.29, 16.39, 32.72, 64.48 ×10³ s⁻¹ (pinned 1e-3); old circular model within 4% |
 | 3-D structure: helical relabelling of an axisymmetric torus (with and without $I$), axisymmetric limit of a 3-period description | `test_quasi_helical_relabelling_leaves_the_drive_unchanged`, `test_axisymmetric_limit_ignores_toroidal_sidebands` | 1e-4 (4e-5 measured, FFT wrap); 1e-9; the previous $n_h/\iota$ form is 17–20% off |
 | Negative $\iota$ ($\theta$-mirror), $n$-reversal ($\zeta$-mirror, co ↔ counter), amplitude and global phase, density scaling, passivity of a uniform distribution | `test_negative_iota_and_n_reversal_describe_the_same_device`, `test_amplitude_phase_density_and_passivity` | 1e-12; $\gamma < 0$ at every $\omega$ |
 | Regularizations: `boundary`, `nodes`, `FastIons.birth_width`, `guard` | `test_passing_boundary_and_node_regularizations_converge`, `test_birth_edge_smoothing_converges_quadratically`, `test_small_divisor_guard_converges_and_is_sensitive_near_rational_surfaces` | see the table below |
@@ -409,6 +409,8 @@ solve converged and the selection does not split a tied set. Each route is teste
   | `zc20` (tilted tokamak, asymmetric, $m = 2$) | 1.2e-4 | flat |
   | `rs20` (same, asymmetric) | 2.8e-4 | flat |
 
+  With vmex 0.14, which holds the $m = 1$ family in the implicit solve and its derivative, `zs01` and `zs11` close to 3e-7 and 1.2e-6 (falling with the step); `zc20` keeps its 1.2e-4.
+
   The remainder does not move with the step, so it is a systematic difference between the re-solve and the adjoint,
   which the plan attributes to the released $m = 1$ gauge (the adjoint holds it fixed, each re-solve lets it
   drift; 4.4e-4 for $\iota$ on `zs01`). **Not closed:** vmex's gauge-free reference `frozen_path_directional_fd`
@@ -553,7 +555,7 @@ tokamak gates use {func}`fax.circular_torus`, axisymmetric (`helical = 0`,
 
   | $T_f$ (keV) | 100 | 200 | 300 | 400 |
   |---|---|---|---|---|
-  | FAX, Boozer geometry, $j$-form (10³ s⁻¹) | 4.26 | 16.27 | 32.48 | 64.02 |
+  | FAX, Boozer geometry, $j$-form (10³ s⁻¹) | 4.29 | 16.39 | 32.72 | 64.48 |
   | FAX, Boozer geometry, previous $n_h/\iota$ form | 4.33 | 16.52 | 32.94 | 64.85 |
   | FAX, previous circular large-aspect-ratio model | 4.4 | 16.6 | 33.1 | 65 |
   | Könies pooled ZLR band (not a reference) (10³ s⁻¹) | 8–10 | 25–33 | 38–43 | |

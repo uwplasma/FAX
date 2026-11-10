@@ -140,7 +140,7 @@ python examples/koenies_tae_drive.py             # about 10 s, writes koenies_ta
 :width: 60%
 ```
 
-The printed values at 100, 200, 300 and 400 keV are 4.26, 16.27, 32.48 and 64.02 ×10³ s⁻¹. The dots are the CAS3D-K (ZOW) curve of
+The printed values at 100, 200, 300 and 400 keV are 4.29, 16.39, 32.72 and 64.48 ×10³ s⁻¹. The dots are the CAS3D-K (ZOW) curve of
 Könies et al. (2018, fig. 1a): FAX is a constant 0.58–0.60 of it from 82 to 191 keV, plausibly the missing trapped share (the paper
 does not say what the curve contains, so the content is unmatched and this is not a validation). The pooled ZLR band mixes codes
 with different physics and is not used. FAX is zero-orbit-width, passing-only and has no damping; $\gamma/\omega$ is 4% at 200 keV
