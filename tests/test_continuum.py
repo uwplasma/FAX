@@ -10,6 +10,7 @@ import pytest
 
 import fax
 from fax.continuum import MU0, generalized_eigh
+from fax.eigen import dense, global_matrices
 
 DATA = Path(__file__).parent / "data"
 
@@ -131,6 +132,16 @@ def test_inputs_are_validated_on_the_host():
         fax.continuum(replace(geo, G=0 * geo.G), h, rho, 32, 4)
     with pytest.raises(ValueError, match="positive"):
         fax.surface_grid(replace(geo, bmnc=geo.bmnc.at[:, 0].set(-1.0)))
+
+
+def test_global_matrices_validate_density_and_surfaces():
+    geo, h = fax.circular_torus(s=(jnp.arange(8) + 0.5) / 8), fax.mode_family(1, 3)
+    with pytest.raises(ValueError, match="density"):
+        global_matrices(geo, h, 0.0, 16, 4)
+    for s in (geo.s.at[0].set(0.0), geo.s.at[-1].set(1.0)):
+        with pytest.raises(ValueError, match="strictly inside"):
+            global_matrices(replace(geo, s=s), h, 3.4e-8, 16, 4)
+    assert jnp.all(jnp.isfinite(dense(global_matrices(geo, h, 3.4e-8, 16, 4)[0])))
 
 
 def test_generalized_eigh_matches_explicit_inverse_and_residual():
