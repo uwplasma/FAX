@@ -148,17 +148,15 @@ def from_booz_xform(output: dict[str, Any], s: Any, nfp: int) -> Geometry:
     arrays = {name: output[f"{name}_b"] for name in _MODES if f"{name}_b" in output}
     if "gmnc" not in arrays and "gmn_b" in output:
         arrays["gmnc"] = output["gmn_b"]
-    zeros = jnp.zeros_like(jnp.asarray(output["bmnc_b"]))
-    values = {name: jnp.asarray(arrays.get(name, zeros)) for name in _MODES}
-    return Geometry(
-        s=jnp.asarray(s),
-        xm=jnp.asarray(output["ixm_b"], dtype=float),
-        xn=jnp.asarray(output["ixn_b"], dtype=float),
-        iota=jnp.asarray(output["iota_b"]),
-        G=jnp.asarray(output["bvco_b"]),
-        I=jnp.asarray(output["buco_b"]),
-        nfp=int(nfp),
-        **values,
+    return Geometry.from_arrays(
+        nfp,
+        s=s,
+        xm=output["ixm_b"],
+        xn=output["ixn_b"],
+        iota=output["iota_b"],
+        G=output["bvco_b"],
+        I=output["buco_b"],
+        **arrays,
     )
 
 
@@ -259,13 +257,6 @@ def synthesize(cos: Any, sin: Any, xm: Any, xn: Any, theta: Any, zeta: Any) -> t
     return f, ft, fz
 
 
-def angle_grid(ntheta: int, nzeta: int, nfp: int = 1) -> tuple[jax.Array, jax.Array]:
-    """Uniform periodic grid; ``zeta`` covers one full toroidal turn."""
-    theta = 2.0 * jnp.pi * jnp.arange(ntheta) / ntheta
-    zeta = 2.0 * jnp.pi * jnp.arange(nzeta) / nzeta
-    return jnp.meshgrid(theta, zeta, indexing="ij")
-
-
 def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> SurfaceGrid:
     """Sample ``|B|``, its derivatives, the Boozer Jacobian and the metric on every surface.
 
@@ -275,7 +266,8 @@ def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> SurfaceGri
     finite differences in ``s``.
     """
     check(jnp.all(jnp.diff(geo.s) > 0) & (geo.s.shape[0] >= 3), "geometry.s must be increasing with at least 3 surfaces")
-    theta, zeta = angle_grid(ntheta, nzeta)
+    # uniform periodic grid; zeta covers one full toroidal turn
+    theta, zeta = jnp.meshgrid(2.0 * jnp.pi * jnp.arange(ntheta) / ntheta, 2.0 * jnp.pi * jnp.arange(nzeta) / nzeta, indexing="ij")
     ds = lambda a: _d_ds(a, geo.s)
     B, Bt, Bz = synthesize(geo.bmnc, geo.bmns, geo.xm, geo.xn, theta, zeta)
     Bs = synthesize(ds(geo.bmnc), ds(geo.bmns), geo.xm, geo.xn, theta, zeta)[0]

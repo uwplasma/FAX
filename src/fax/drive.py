@@ -40,7 +40,7 @@ Trapped and precessing particles are omitted (no bounce-averaged precession reso
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import jax
@@ -72,7 +72,7 @@ class FastIons:
     mass_amu: Any = 2.01410178
     charge: Any = 1.0
     birth_width: Any = 0.02
-    kind: str = field(default="maxwellian", metadata={"static": True})
+    kind: str = "maxwellian"
 
     def __post_init__(self) -> None:
         if self.kind not in ("maxwellian", "slowing_down"):
@@ -163,7 +163,7 @@ def growth_rate(
         jax.lax.map(jax.checkpoint(resonance), jnp.asarray(pairs)) * wx * (1.0 - boundary) / (2 * bmax), axis=-1
     )  # (P, S)
     zero = jnp.zeros((len(pairs), 1))
-    radial = _integrate(jnp.concatenate([zero, power, zero], 1), jnp.concatenate([zero[0], geo.s, jnp.ones(1)]))
+    radial = jnp.trapezoid(jnp.concatenate([zero, power, zero], 1), jnp.concatenate([zero[0], geo.s, jnp.ones(1)]))
     inertia = global_matrices(geo, hm, mass_density, ntheta=ntheta, nzeta=nzeta)[1]
     gamma = jnp.pi**2 * MU0 * (ions.mass_amu * AMU) ** 2 / 2 * radial / _quad(phi[..., None], inertia)[0]
     return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
@@ -196,8 +196,3 @@ def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:
 
     f, dfdv = jax.jvp(shape, (v,), (jnp.ones_like(v),))
     return dfdv / (m * v), f
-
-
-def _integrate(y: jax.Array, x: Any) -> jax.Array:
-    """Trapezoidal rule along the last axis (``jnp.trapezoid`` is missing from older JAX)."""
-    return 0.5 * jnp.sum((y[..., 1:] + y[..., :-1]) * jnp.diff(jnp.asarray(x)), axis=-1)
