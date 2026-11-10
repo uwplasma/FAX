@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 import fax
+from fax.continuum import AMU
 
 S = (jnp.arange(200) + 0.5) / 200
 R0 = jnp.sqrt((1.75 - 1.71) / 0.16)  # q = (m + 1/2)/n = 1.75 for m = 10, n = 6
@@ -40,7 +41,7 @@ def test_fu_van_dam_maxwellian_scaling():
     psi' = B0 a^2 / 2, and ``W = int rho |grad phi|^2 / (2 B0^2) dV``. The prefactor ``gamma = pi^4 m_f^2 P / W`` (``P`` the radial
     integral) is that of the module docstring, fixed by the Koenies gate below, not derived here. Approximations: O(eps) toroidal
     corrections and the v_A / 3 resonances (excluded, they are ~exp(-9 x^2))."""
-    R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, 2.01410178 * 1.66053906660e-27, 1e6, 1.602176634e-19
+    R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, 2.01410178 * AMU, 1e6, 1.602176634e-19
     rho = float(RHO)
     geo = fax.circular_torus(s=S, major_radius=R0, minor_radius=a, B0=B0, iota=io, epsilon_B=eps)
     r, r0, w = np.sqrt(np.asarray(S)), 0.5, 0.1
@@ -139,11 +140,11 @@ def test_geometry_and_mode_gradients():
 def test_slowing_down_is_normalized_with_its_smoothed_edge():
     """``int F d^3 v = 1`` for the erfc-smoothed birth edge (plain quadrature), and the edge drive ``dF/dE`` is its derivative."""
     ions = fax.FastIons(kind="slowing_down", birth_ev=300e3, critical_ev=100e3)
-    m = ions.mass_amu * 1.66053906660e-27
+    m = ions.mass_amu * AMU
     vb = np.sqrt(2 * 300e3 * 1.602176634e-19 / m)
     v = jnp.linspace(1e-6, 1.5 * vb, 400001)
     dfde, f = fax.drive._distribution(v, ions)
-    assert float(fax.drive._integrate(4 * jnp.pi * v**2 * f, v)) == pytest.approx(1.0, abs=1e-6)
+    assert float(jnp.trapezoid(4 * jnp.pi * v**2 * f, v)) == pytest.approx(1.0, abs=1e-6)
     np.testing.assert_allclose(dfde[5:-1], np.gradient(f, v)[5:-1] / (m * v[5:-1]), rtol=1e-6, atol=1e-6 * float(jnp.abs(dfde).max()))
     with pytest.raises(ValueError, match="unknown FastIons kind"):
         fax.FastIons(kind="slowing-down")
