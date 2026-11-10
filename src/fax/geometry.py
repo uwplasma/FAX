@@ -60,15 +60,23 @@ class Geometry:
         return replace(self, **sliced)
 
     def interpolate(self, s: Any) -> Geometry:
-        """Piecewise-linear interpolation in ``s`` onto new surfaces, extrapolated linearly to ``s = 0`` and ``1``."""
+        """Piecewise-linear interpolation in ``s`` onto new surfaces, extrapolated linearly to ``s = 0`` and ``1``.
+
+        Below the first surface, harmonics with ``m > 0`` follow the regular axis behaviour
+        ``(s / s_0)^(m/2)`` (``r^m`` with ``r ~ sqrt(s)``) instead of a straight line.
+        """
+        s = jnp.asarray(s, dtype=float)
         x = jnp.concatenate([jnp.zeros(1), self.s, jnp.ones(1)])
+        axis = (s < self.s[0])[:, None] & (self.xm > 0)
 
         def line(a: jax.Array) -> jax.Array:
             end = lambda i, j, to: a[i] + (to - self.s[i]) * (a[i] - a[j]) / (self.s[i] - self.s[j])  # noqa: E731
-            a = jnp.concatenate([end(0, 1, 0.0)[None], a, end(-1, -2, 1.0)[None]])
-            return jax.vmap(lambda c: jnp.interp(s, x, c), 1, 1)(a) if a.ndim == 2 else jnp.interp(s, x, a)
+            b = jnp.concatenate([end(0, 1, 0.0)[None], a, end(-1, -2, 1.0)[None]])
+            if a.ndim == 1:
+                return jnp.interp(s, x, b)
+            regular = a[0] * (s[:, None] / self.s[0]) ** (0.5 * self.xm)
+            return jnp.where(axis, regular, jax.vmap(lambda c: jnp.interp(s, x, c), 1, 1)(b))
 
-        s = jnp.asarray(s, dtype=float)
         return replace(self, s=s, **{name: line(getattr(self, name)) for name in ("iota", "G", "I", *_MODES)})
 
     def full_mesh(self) -> Geometry:

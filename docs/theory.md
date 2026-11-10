@@ -481,7 +481,8 @@ $$
   rows $j \ge 2$, $s = (j - 1/2)/(n_s - 1)$ (row 1 waits for a vmex fix of its
   $R$, $Z$ tables).
 - **Radial grid.** {meth}`fax.geometry.Geometry.interpolate` maps that geometry,
-  linearly in $s$ and extrapolated to $s = 0, 1$, onto `nodes` uniform FE
+  linearly in $s$ and extrapolated to $s = 0, 1$ (harmonics with $m > 0$ follow
+  $(s/s_0)^{m/2}$ below the first surface), onto `nodes` uniform FE
   nodes $k/(\text{nodes} + 1)$. The radial domain is always $[0, 1]$, and the
   FE grid refines independently of $n_s$ and `mboz`.
 - **Spectrum.** {func}`fax.geometry_frequencies` returns the lowest

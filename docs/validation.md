@@ -21,6 +21,7 @@ passing-only and perturbative (valid to about 200 keV in the Könies case). Ever
 | AE3D CTOK global modes | `test_ae3d_ctok_parity` | 6 modes within 1.4%, overlap > 0.9 |
 | AE3D CTOK TAE (337.9 kHz) | `test_ae3d_v31_blocks_and_energy_on_identical_inputs` | not reproduced: three $\iota'$ terms of AE3D v31's bending blocks differ from the energy; pinned block comparison below |
 | Independent 3-D spectrum, precise QA of Knyazev et al. 2026 (STELLGAP continuum, AE3D gap band) | `test_stellgap_continuum_parity`, `test_ae3d_gap_band_in_the_sine_basis` | continuum 3.0e-3 mean (gate 4e-3); archived global mode within 2% in energy at 24-64 harmonics, 5.1% at AE3D's 162; no single-mode match (overlap 0.18) |
+| Exact sheared 3-D manufactured solution (benchmark of uwplasma/fax#9) | `test_manufactured_solution_and_regular_axis_interpolation` | nodal error 9e-3, 3.1e-3, 8.9e-4 at N = 16, 32, 64 (→ second order) |
 | Bending and inertia vs real-space quadrature | `test_ctok_bending_energy_matches_real_space_quadrature` | 0.3% (gate 0.5%) |
 | Conventions ({ref}`conventions`), embedding Jacobian vs the Boozer identity, force balance | `test_conventions_and_geometry_diagnostics_on_ctok`, `test_konies_itpa_finite_beta_tae` | CTOK $\psi'$ = 0.04509 to 0.4% and angular spread $\le$ 5e-5 for $s \ge 0.05$ (first surface 15% low); force-balance $B_s$ vs embedding $\le$ 1e-5 of $\lvert B\rvert$; ITPA ($\psi' = 3\pi/2\pi$): 0.3% for $s \ge 0.1$ (the first four surfaces up to 4.5% off), spread $\le$ 3e-4, force balance $\le$ 8e-5, $\mu_0p'$ vs the input's `AM` to 0.15% |
 | Forms of the kink term ({ref}`finite-beta`) | `test_kink_forms_differ_by_the_curl_b_term` | $K_\mathrm{direct} = K_{\nabla\sigma} - \int u\sigma(\nabla\times\mathbf b)\cdot\nabla\tilde\phi^*$ and $K_\mathrm{full} = K_{\nabla\sigma} - \int\sigma^2u\tilde u^*$ to 2e-6 (random periodic field); counterexample $-1/4$, 0, $-1/4$ |
@@ -178,6 +179,19 @@ to AE3D's eigenvectors by overlap > 0.9, agree within 1.4%:
 
 AE3D's 343.6, 384.1, 685.6, 703.3, 738.2 and 741.2 kHz modes are all
 reproduced within 1.4% (gate 1.5%).
+
+**Independent operator and the QA archive (uwplasma/fax#9).** E. Lascas Neto
+built a separate physical-potential assembly of the same weak form (Gauss
+quadrature at sampled geometry, Knyazev et al. 2026). On CTOK it agrees with
+{func}`fax.global_matrices` to within 5.6e-4 on every AE3D-matched mode, with
+identical mode counts, while FAX assembles 2.4× faster (0.15 s vs 0.35 s at
+$N = 99$, $H = 13$). On the precise-QA case of Knyazev et al. (archive DOI
+10.5281/zenodo.21299908) the archived AE3D mode is at 30.31 kHz: public AE3D
+formulas reproduce it (30.30 kHz, profile error 4%), while the physical index
+assignment gives 27.57 kHz. This is the same AE3D shear-index discrepancy as
+the pinned CTOK block comparison below, found independently. Its manufactured-solution benchmark is
+ported to `test_manufactured_solution_and_regular_axis_interpolation`, and its
+regular axis extension $(s/s_0)^{m/2}$ to {meth}`fax.geometry.Geometry.interpolate`.
 
 **The CTOK TAE: pinned block comparison.** AE3D's TAE at 337.9 kHz is not
 reproduced by FAX. Both operators were fed the same metric input and compared

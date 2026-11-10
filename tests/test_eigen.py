@@ -468,6 +468,73 @@ def test_cylinder_newcomb_m1_and_suydam_threshold():
     assert 12 < lowest[400, 1e4] / lowest[1600, 1e4] < 20 and lowest[1600, 2e4] / lowest[400, 2e4] == pytest.approx(1, abs=0.05)
 
 
+def test_manufactured_solution_and_regular_axis_interpolation():
+    """Exact sheared 3-D solution (Knyazev et al. 2026 benchmark, uwplasma/fax#9): the Galerkin solution of
+    ``(F + shift G) c = b`` with an independently integrated load converges to the exact nodal potential."""
+    q, b0, rho, h = 0.25, 2.0, 1.7e-6, np.array([[2.0, 1.0], [3.0, 3.0]])
+    shift, shear = q**2 * b0**2 / (MU0 * rho), 0.8
+
+    def amp(s):  # amplitudes vanishing like s^(m/2) or faster at the axis, and at the edge
+        p = np.pi
+        a = np.stack([np.sin(p * s) ** 2, 0.5 * np.sin(p * s) * np.sin(2 * p * s)], -1)
+        da = np.stack([p * np.sin(2 * p * s), 0.5 * p * (np.cos(p * s) * np.sin(2 * p * s) + 2 * np.sin(p * s) * np.cos(2 * p * s))], -1)
+        return a, da
+
+    def grads(a, da, s, t, z):  # covariant gradients of phi = a e_j and of D phi, D = q (iota d_theta + d_zeta)
+        e = np.exp(1j * (t[..., None] * h[:, 0] - z[..., None] * h[:, 1]))
+        k, m, n = (0.3 + shear * s)[..., None] * h[:, 0] - h[:, 1], h[:, 0], h[:, 1]
+        u, du = 1j * q * k * a, 1j * q * (k * da + shear * m * a)
+        return [np.stack([d * e, 1j * m * f * e, -1j * n * f * e], -1) for f, d in ((a, da), (u, du))]
+
+    def jac(s, t, z):  # d(x, y, z)/d(s, theta, zeta) of R = 4 + sqrt(s)(cos t + .16 cos 2(t - z))/2, Z = .85 sqrt(s)(sin t + .16 sin ...)
+        r, c, sn, cp, sp = np.sqrt(s), np.cos(t), np.sin(t), np.cos(2 * t - 2 * z), np.sin(2 * t - 2 * z)
+        R, Rs, Rt, Rz = 4 + 0.5 * r * (c + 0.16 * cp), 0.25 / r * (c + 0.16 * cp), -0.5 * r * (sn + 0.32 * sp), 0.16 * r * sp
+        Zs, Zt, Zz = 0.425 / r * (sn + 0.16 * sp), 0.85 * r * (c + 0.32 * cp), -0.272 * r * cp
+        cz, sz = np.cos(z), np.sin(z)
+        rows = (
+            np.stack([Rs * cz, Rt * cz, Rz * cz - R * sz], -1),
+            np.stack([Rs * sz, Rt * sz, Rz * sz + R * cz], -1),
+            np.stack([Zs, Zt, Zz], -1),
+        )
+        return np.stack(rows, -2)
+
+    t, z = np.meshgrid(*2 * [2 * np.pi * np.arange(32) / 32], indexing="ij")
+    xg, wg = np.polynomial.legendre.leggauss(6)
+    errors = []
+    for N in (16, 32, 64):
+        s = np.arange(1, N + 1) / (N + 1)
+        r, zero = np.sqrt(s), 0 * s
+        geo = fax.Geometry.from_arrays(
+            1,
+            s=s,
+            xm=np.array([0.0, 1, 2]),
+            xn=np.array([0.0, 0, 2]),
+            rmnc=np.stack([4 + zero, 0.5 * r, 0.08 * r], 1),
+            zmns=np.stack([zero, 0.85 * r, 0.136 * r], 1),
+            bmnc=np.stack([b0 + zero, zero, zero], 1),
+            iota=0.3 + shear * s,
+            G=b0 / q + zero,
+            I=zero,
+        )
+        F, G = global_matrices(geo, h, rho)
+        load, nodes = np.zeros((N + 2, 2), complex), np.concatenate([[0.0], s, [1.0]])
+        for e, (left, width) in enumerate(zip(nodes[:-1], np.diff(nodes), strict=True)):
+            for x, w in zip((xg + 1) / 2, wg / 2, strict=True):
+                si = np.full(t.shape, left + width * x)
+                J = jac(si, t, z)
+                gi, vol = np.linalg.inv(np.swapaxes(J, -1, -2) @ J), np.abs(np.linalg.det(J))
+                gp, gu = (g.sum(-2) for g in grads(*amp(si), si, t, z))
+                for node, val, slope in ((e, 1 - x, -1 / width), (e + 1, x, 1 / width)):
+                    vp, vu = grads(np.full(gp.shape[:2] + (2,), val), np.full(gp.shape[:2] + (2,), slope), si, t, z)
+                    dot = np.einsum("tzji,tzik,tzk->tzj", np.conj(vu), gi, gu) + q**2 * np.einsum("tzji,tzik,tzk->tzj", np.conj(vp), gi, gp)
+                    load[node] += w * width * (vol[..., None] * dot).mean((0, 1))
+        c = np.linalg.solve(np.asarray(dense(F)) + shift * np.asarray(dense(G)), load[1:-1].ravel()).reshape(N, 2)
+        errors.append(np.linalg.norm(c - amp(s)[0]) / np.linalg.norm(amp(s)[0]))
+    assert errors[0] > errors[1] > errors[2] and errors[1] / errors[2] > 3 and errors[2] < 1.5e-3
+    near = geo.interpolate(np.array([1e-4, 1e-3]))  # r^m behaviour below the first surface: R_1 = sqrt(s) / 2 exactly
+    np.testing.assert_allclose(near.rmnc[:, 1], 0.5 * np.sqrt([1e-4, 1e-3]), rtol=1e-12)
+
+
 def test_unstable_omega2_is_signed_with_finite_gradients():
     """Suydam-unstable cylinder (p0 = 2e4 Pa): omega^2 < 0 is kept, with the growth rate and stable frequency separate."""
     rho, s = fax.mass_density(2e19, 1.00727647), (jnp.arange(400) + 0.5) / 400

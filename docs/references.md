@@ -50,6 +50,9 @@
   collaborators, "Stability optimization of energetic particle driven modes in
   nuclear fusion devices: the FAR3d gyrofluid code", *Front. Phys.* **12**,
   1422411 (2024). [doi:10.3389/fphy.2024.1422411](https://doi.org/10.3389/fphy.2024.1422411)
+- Knyazev et al. (2026), physical-potential vorticity form of the shear-Alfvén
+  weak form, [arXiv:2603.03118](https://arxiv.org/abs/2603.03118); QA and QI
+  STELLGAP/AE3D archive [doi:10.5281/zenodo.21299908](https://doi.org/10.5281/zenodo.21299908).
 - STELLGAP and AE3D: the CTOK test problem and outputs in `tests/data`.
 
 ## Optimization and equilibria
