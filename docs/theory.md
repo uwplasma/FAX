@@ -699,8 +699,8 @@ damping and electron Landau damping are not computed; subtract them as an
 external $\gamma_d$, $\gamma = \gamma_h - \gamma_d$.
 
 **Scope of the number.** Passing-only and perturbative: against the CAS3D-K zero-orbit-width curve of Könies et al. (2018) the
-Könies-case drive is 0.58–0.60 (82–191 keV), plausibly the missing trapped share (not established; the curve's content is not
-stated), and $\gamma/\omega \le 4\%$ only up to 200 keV ({doc}`validation`).
+Könies-case drive is 0.58–0.60 (82–191 keV), unexplained (the curve's content is not stated; open candidates in
+{doc}`validation`), and $\gamma/\omega \le 4\%$ only up to 200 keV ({doc}`validation`).
 
 **Not included.** Trapped and precessing particles (their resonance is
 $\omega = k\langle\omega_d\rangle_b + p\,\omega_b$ with bounce averages; not

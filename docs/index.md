@@ -9,18 +9,7 @@ FAX is a lean JAX code for shear-Alfvén physics in stellarators. From a Boozer-
 - **first-order derivatives** of these with respect to profiles and, through
   [VMEX](https://github.com/uwplasma/vmex) and [booz_xform_jax](https://github.com/uwplasma/booz_xform_jax), the VMEC plasma boundary.
 
-## Scope
-
-| Supported | Not supported |
-|---|---|
-| Low-β continuum (STELLGAP form) | Sound coupling, so no BAE or BAAE |
-| AE3D-form reduced global modes, signed $\omega^2$ | Continuum damping and electron damping |
-| `finite_beta=True`: restricted $J_\parallel$ and pressure terms, experimental | A full-MHD or compressional model |
-| Drive of a fixed mode: zero orbit width, passing ions | Trapped particles, finite orbit width, finite Larmor radius |
-
-The drive is about 0.6 of the CAS3D-K zero-orbit-width curve of Könies et al. (2018), plausibly the missing trapped share (not
-established), and is perturbative: $\gamma/\omega \le 4\%$ up to 200 keV in that case. Derivatives are first order and are NaN
-unless the eigensolve converged and its selection is not a tie ({doc}`api`). {doc}`validation` lists every gate and what is open.
+Scope, supported and unsupported physics, and the open drive comparison are in the [README](https://github.com/uwplasma/fax#scope) and {doc}`validation`. Derivatives are first order and are NaN unless the eigensolve converged and its selection is not a tie ({doc}`api`).
 
 ```console
 pip install alfvex                  # PyPI name; imported as fax (FAX will soon be renamed ALFVEX)
