@@ -8,25 +8,31 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gradients:
     name: Frozen-path gradients and resolution sweeps
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, uwplasma-cpu]
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev,vmex]"
-      - run: python -m pytest -q -m scheduled -s
+          enable-cache: false
+      - run: uv venv && uv pip install -e ".[dev,vmex]"
+      - run: .venv/bin/python -m pytest -q -m scheduled -s
 
   stacks:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, uwplasma-cpu]
     timeout-minutes: 120
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - name: Minimum, Python 3.10, JAX 0.4.38, SOLVAX 0.36.0
@@ -45,8 +51,9 @@ jobs:
             pins: "--upgrade"
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -e ".[${{ matrix.extra }}]" ${{ matrix.pins }}
+          enable-cache: false
+      - run: uv venv && uv pip install -e ".[${{ matrix.extra }}]" ${{ matrix.pins }} && echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - run: ${{ matrix.run || 'python -m pytest -q -m ''not scheduled''' }}

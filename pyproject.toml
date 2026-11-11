@@ -55,6 +55,7 @@ where = ["src"]
 testpaths = ["tests"]
 addopts = "-m 'not slow and not scheduled'"
 markers = [
+  "gpu: small-size checks that the GPU CI job runs with -m gpu; they also pass on CPU",
   "slow: minutes-long tests (vmex solves, 64-harmonic AE3D band); the PR coverage job runs them, the per-Python matrix does not",
   "scheduled: frozen-path gradients and resolution sweeps (tens of minutes); the weekly workflow runs -m scheduled",
 ]
