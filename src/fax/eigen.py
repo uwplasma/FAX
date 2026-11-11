@@ -90,6 +90,7 @@ def global_matrices(
     h = jnp.asarray(harmonics, dtype=float)
     check(jnp.all(jnp.asarray(density) > 0), "density must be positive")
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
+    check(jnp.sum(jnp.all(h[:, None] == h[None], -1)) == len(h), "harmonics must be distinct (duplicate (m, n) make the mass singular)")
     g = surface_grid(geo, ntheta, nzeta)
     D, (iota_s, D_s) = geo.G + geo.iota * geo.I, _d_ds(jnp.stack([geo.iota, geo.G + geo.iota * geo.I], 1), geo.s).T
     inertia, bending = _modes(g, geo.iota, iota_s, D, D_s, h)
