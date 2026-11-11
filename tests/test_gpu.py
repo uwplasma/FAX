@@ -12,10 +12,10 @@ pytestmark = pytest.mark.gpu
 
 
 def test_uniform_field_continuum_matches_the_analytic_frequencies():
-    geo = fax.circular_torus(iota=jnp.linspace(0.3, 0.6, 12))
-    harmonics = fax.mode_family((1, 2), 3)
+    geo = fax.circular_torus(iota=jnp.linspace(0.3, 0.6, 24))
+    harmonics = fax.mode_family((1, 2), 4)
     rho = fax.mass_density(1e19, 2.0)
-    f = jax.jit(lambda g: fax.continuum(g, harmonics, rho))(geo)
+    f = fax.continuum(geo, harmonics, rho)
     k = (harmonics[:, 1] - harmonics[:, 0] * geo.iota[:, None]) / 5.5
     exact = jnp.sort(jnp.abs(k) * 2.7 / jnp.sqrt(MU0 * rho) / (2 * jnp.pi), axis=1)
     np.testing.assert_allclose(f, exact, rtol=1e-9)
