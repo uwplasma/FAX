@@ -68,7 +68,7 @@ A and B start now. C runs in parallel with A/B. D needs C. E needs B and D. F ca
 
 ### A. Repair the contract (FAX)
 - [x] Replace the vacuous Fu–Van Dam test with a weak-toroidicity limit: nonzero growth rate, absolute coefficient, sign and asymptotic scaling.
-- [~] Reject aliased angle grids (`ntheta` below what the harmonic products need), invalid density/B/geometry and singular mass. Tests assert finiteness and residuals, not shapes. Done except an explicit singular-mass check.
+- [x] Reject aliased angle grids (`ntheta` below what the harmonic products need), invalid density/B/geometry and singular mass. Tests assert finiteness and residuals, not shapes. Singular mass: `global_matrices` rejects duplicate `(m, n)` harmonics host-side (no factorization; `test_global_matrices_validate_density_and_surfaces`).
 - [x] Keep signed `omega2`. Define a stable frequency and an ideal growth rate separately, with a status flag.
 - [x] Shift-invert reports convergence, residuals and orthogonality. Detect Schur-pivot failure and fall back to a pivoted or dense reference (moves to SOLVAX in D).
 - [x] Second-order nonuniform `_d_ds` with a convergence test on irregular grids.
@@ -101,7 +101,7 @@ A and B start now. C runs in parallel with A/B. D needs C. E needs B and D. F ca
 ### D. Migrate numerics and geometry (FAX + SOLVAX, VMEX, booz_xform_jax)
 - [x] Replace FAX's `block_factor`/`block_solve`/`shift_invert`/`targeted_eigenvalues` with the SOLVAX contract. FAX keeps a thin wrapper only. Results stay within error budgets. Done; numbers and tests in `docs/validation.md`.
 - [x] Use the public VMEX state → Boozer bridge. Drop the half-row-1 workaround once a VMEX release contains #631. Done in #41 (vmex ≥ 0.13.0).
-- [~] Continuum: triangular solves instead of the explicit Cholesky inverse. Share surface grids across continuum, global and drive. Triangular solves done; each module still builds its own surface grid.
+- [x] Continuum: triangular solves instead of the explicit Cholesky inverse. Triangular solves done. Sharing surface grids: not worth it. Under `jit` XLA already merges the identical grids (continuum + eigenmodes, 4.5 ms total); only the eager path repeats the 36 ms grid (78 ms for both, 1 grid shared would be ~40 ms), and `growth_rate` defaults to a different 64x32 grid.
 
 **Gate:** no duplicated solver code; same physical outputs; pinned compatible releases tested.
 

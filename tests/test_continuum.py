@@ -142,6 +142,8 @@ def test_global_matrices_validate_density_and_surfaces():
     for s in (geo.s.at[0].set(0.0), geo.s.at[-1].set(1.0)):
         with pytest.raises(ValueError, match="strictly inside"):
             global_matrices(replace(geo, s=s), h, 3.4e-8, 16, 4)
+    with pytest.raises(ValueError, match="distinct"):
+        global_matrices(geo, jnp.concatenate([h, h[:1]]), 3.4e-8, 16, 4)
     assert jnp.all(jnp.isfinite(dense(global_matrices(geo, h, 3.4e-8, 16, 4)[0])))
 
 
