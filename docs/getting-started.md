@@ -1,8 +1,17 @@
 # Getting started
 
+## Five minutes
+
+1. Install: `pip install alfvex` (version 1.0.1 on PyPI; the import name is `fax`).
+2. Run the quickstart below. It needs no data file and prints the TAE gap, the modes inside it and a gradient.
+3. Run a case from a checkout: `fax run examples/ctok_continuum.toml --plot --cache`. It writes `results.npz`, `case.json` and
+   `continuum.png` to the case's output folder (relative to the case file); `--cache` keeps JAX compilations on disk, so a second run starts faster.
+4. Go on to {doc}`tutorials` for the worked examples, {doc}`theory` for the equations, {doc}`validation` for what is tested and
+   {doc}`api` for the derivative contract.
+
 ## Install
 
-FAX needs Python 3.10 or newer, JAX 0.4.38 or newer and `solvax>=0.36.0`. FAX is on PyPI as
+FAX needs Python 3.10 or newer, JAX 0.4.38 or newer and `solvax>=0.36.0`; the `vmex` extra needs Python 3.11 or newer and `vmex>=0.13.0`. FAX is on PyPI as
 `alfvex` (`pip install alfvex`, extras as below) and is imported as `fax`; it will soon be renamed ALFVEX everywhere. Do not
 `pip install fax`, an unrelated package. From a clone, the commands below install the development version.
 
@@ -11,6 +20,8 @@ pip install .              # core: JAX, SOLVAX, NumPy, netCDF4
 pip install ".[vmex]"      # VMEC solves and boundary gradients (Python >= 3.11)
 pip install ".[plot]"      # matplotlib, for the figure examples
 ```
+
+From PyPI the same extras are `pip install "alfvex[vmex]"` and `pip install "alfvex[plot]"`.
 
 `pip install -e ".[dev,vmex]"` installs everything used by the tests and the docs. FAX switches JAX to float64 on import: Alfvén
 operators are stiff, and their eigenvalues are not reliable in float32.
@@ -70,8 +81,8 @@ arguments, NaN for rejected solves); see {doc}`tutorials`.
 ## TOML reference
 
 A case has four tables. Every key is optional and takes the default below
-(`fax.io.DEFAULTS`); unknown tables or keys raise `ValueError`. Relative
-`geometry.path` and `run.output` are resolved against the case file.
+(`fax.io.DEFAULTS`); unknown tables or keys raise `ValueError`. The solver rejects a non-positive density, surfaces outside
+the open interval (0, 1) and a repeated `(m, n)` harmonic. Relative `geometry.path` and `run.output` are resolved against the case file.
 
 ### `[geometry]`
 
