@@ -15,7 +15,7 @@ concurrency:
 jobs:
   gradients:
     name: Frozen-path gradients and resolution sweeps
-    runs-on: [self-hosted, macOS, uwplasma-cpu]
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v5
@@ -28,7 +28,7 @@ jobs:
 
   stacks:
     name: ${{ matrix.name }}
-    runs-on: [self-hosted, macOS, uwplasma-cpu]
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 120
     strategy:
       fail-fast: false
