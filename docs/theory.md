@@ -1,14 +1,19 @@
 # Theory and numerics
 
 This page derives every equation FAX solves, in the order the code applies
-them, and names the function that implements each one. Units are SI;
-frequencies `ω` are in rad/s and the public functions report `f = ω/2π` in Hz.
+them, and names the function that implements each one. Sections 1 to 3 set up the geometry and the
+local continuum, section 4 builds the global operator, sections 5 and 6 solve it and differentiate the result,
+section 7 connects it to vmex, and sections 8 to 10 add the fast-ion drive and the optimization objectives.
+Units are SI; frequencies `ω` are in rad/s and the public functions report `f = ω/2π` in Hz.
 
-**Scope.** The model is the low-β shear-Alfvén ordering of Spong et al.: restricted finite-β terms (section 4, experimental), no
+Scope: the model is the low-β shear-Alfvén ordering of Spong et al.: restricted finite-β terms (section 4, experimental), no
 sound coupling (so no BAE or BAAE), no continuum or electron damping, and a drive for zero orbit width, zero Larmor radius and passing
 ions only (section 8). {doc}`api` maps each equation to its function and test and states the derivative contract of each function.
 
 ## 1. Boozer coordinates and the metric
+
+This section fixes the coordinates, the field representation and the sign conventions that every later
+formula uses. The metric tensor built here enters both the continuum (section 2) and the global operator (section 4).
 
 FAX works on flux surfaces labelled by the normalized toroidal flux
 $s = \Phi_t/\Phi_\mathrm{edge} \in (0, 1)$, with Boozer angles $(\theta, \zeta)$.
@@ -49,14 +54,14 @@ One set of conventions governs the code, the tests, the exports and this page.
 | Angles | $\theta$, $\zeta \in [0, 2\pi)$; $\zeta$ spans the full torus and the cylindrical angle is $\phi = \zeta + p(s,\theta,\zeta)$ |
 | Toroidal number | full-torus $n$ (`ixn_b`, a multiple of $N_{fp}$), never $n/N_{fp}$; families are $n_0 + kN_{fp}$ ({func}`fax.mode_family`) |
 | Phase | $\phi \propto e^{i(m\theta - n\zeta - \omega t)}$, so $\mathbf B\cdot\nabla\to i k_\parallel B$ with $k_\parallel = (\iota m - n)B/(G + \iota I)$; $\omega > 0$ and $(m, n)\to(-m, -n)$ is the complex conjugate. The sign matters for the drive ($Q_h$, section 8), not for the Hermitian operators $F$, $G$ |
-| Units | SI. $\omega$ in rad/s and $\lambda = \omega^2$ in rad²/s² inside the solvers; `frequencies_hz` is $\omega/2\pi$; AE3D prints kHz. $\rho$ is the mass density in kg/m³ ({func}`fax.mass_density`), $\sigma$ in 1/m, pressure in Pa, $\mu_0 p'$ in 1/m² |
+| Units | SI. $\omega$ in rad/s and $\lambda = \omega^2$ in rad²/s² inside the solvers; `frequencies_hz` is $\omega/2\pi$; AE3D prints kHz. $\rho$ is the mass density in kg/m³ ({func}`fax.mass_density`, which takes the ion mass in atomic mass units; a proton is 1.00727647), $\sigma$ in 1/m, pressure in Pa, $\mu_0 p'$ in 1/m² |
 | Angle averages | $\langle a\rangle$ is the mean over the grid; the $4\pi^2$ and the common $\psi'$ cancel between $F$ and $G$ |
 | Eigenvectors | $F y = \omega^2 G y$ with $y^\dagger G y = 1$; $y_{kj}$ is the amplitude of harmonic $j$ at node $k$ (potential in V, up to a free complex phase) |
 
 {func}`fax.surface_grid` samples these on a uniform $(\theta,\zeta)$ grid
 covering the whole torus. Angle derivatives are exact (term by term);
-radial derivatives of the harmonics use second-order central differences in
-$s$, one-sided at the first and last surface. The position
+radial derivatives of the harmonics use three-point Lagrange weights on the
+(possibly nonuniform) surfaces, second order including the first and last surface. The position
 $\mathbf r = (R\cos\phi, R\sin\phi, Z)$ with $\phi = \zeta + p$ gives the
 covariant basis $\mathbf r_i = \partial_i\mathbf r$ for $u^i = (s,\theta,\zeta)$,
 
@@ -87,6 +92,10 @@ of radius $r = a\sqrt s$ in the geometric angle $\theta + \varepsilon\sin\theta$
 equilibrium of Könies et al. (2018); with $\epsilon_B = 0$ the field is uniform.
 
 ## 2. The shear-Alfvén continuum
+
+On a single flux surface the radial derivative drops out of the shear-Alfvén equation and what remains is a matrix
+eigenproblem in the poloidal and toroidal harmonics. Its eigenfrequencies, collected over all surfaces, form the continuum that
+global modes must avoid or sit inside.
 
 At low $\beta$, for incompressible shear-Alfvén perturbations, the radial
 displacement $E$ of a continuum mode on one surface obeys (Spong, Sanchez &
@@ -119,9 +128,12 @@ $$ (continuum-galerkin)
 This is the STELLGAP weighting: the metric factor $|\nabla s|^2/B^2$ and the
 Jacobian enter both matrices, and $K$ carries $B^2 k_\parallel^2/\mu_0$
 (Spong et al. 2003). {func}`fax.continuum_matrices` evaluates the averages on
-the uniform grid (default 32 × 32), which is exact for band-limited
-integrands (a test checks 32 × 32 against 64 × 64 to 1e-9), and symmetrizes
-both matrices. {func}`fax.continuum` solves each surface with a Cholesky
+the uniform grid (default 32 × 32) with one real FFT per surface: the helper `angle_mean` returns
+$\langle f\,e^{i(\Delta m\,\theta - \Delta n\,\zeta)}\rangle$ for every pair of harmonics as the Fourier coefficient of $f$ at
+$(-\Delta m, \Delta n)$, instead of building an $H\times H\times N_\theta\times N_\zeta$ tensor. This is exact for band-limited
+integrands (a test checks 32 × 32 against 64 × 64 to 1e-9) and needs $N_\theta > 2\max|\Delta m|$ and $N_\zeta > 2\max|\Delta n|$, since a coarser
+grid aliases $\Delta m$ with $\Delta m - N_\theta$; the function raises `ValueError` when it does not. It also requires a positive density and
+$G + \iota I \ne 0$. Both matrices are then symmetrized. {func}`fax.continuum` solves each surface with a Cholesky
 reduction, $L = \mathrm{chol}(M)$, $L^{-1}KL^{-\dagger}y = \omega^2y$, and
 returns $f = \sqrt{\max(\omega^2,0)}/2\pi$ sorted on each surface.
 
@@ -134,6 +146,9 @@ $n + kN_{fp}$, so a family is a list `n = [n0, n0 + Nfp, n0 - Nfp, ...]` in
 $\omega_A = \langle B^2\rangle/((G + \iota I)\sqrt{\mu_0\rho})$.
 
 ## 3. Gap formulas
+
+A coupling between two continuum branches turns their crossing into a gap. This section gives where the gaps sit and how wide they are
+to first order, which is what the continuum figures and the objective of section 10 are read against.
 
 Two cylindrical branches $(m, n)$ and $(m + \Delta m, n + \Delta n N_{fp})$,
 $\omega = |n - m\iota|v_A/R$, cross where
@@ -164,6 +179,11 @@ the centre and width of the widest gap between adjacent sorted branches on
 each surface (any family, any gap type).
 
 ## 4. Global eigenmodes: the AE3D weak form
+
+The continuum ignores radial structure. This section writes the reduced shear-Alfvén problem as a weak form for the physical
+electrostatic potential $\phi$, discretizes it with Fourier harmonics in the angles and linear finite elements in $s$, and arrives at the
+Hermitian pencil $Fy = \omega^2 Gy$ with block-tridiagonal $F$ and $G$. The finite-$\beta$ subsection derives the optional extra terms and
+the order at which they are kept; a reader who only needs the default model can skip to the basis.
 
 AE3D (Spong, D'Azevedo & Todo 2010, eqs. 3–7) writes the reduced ideal-MHD
 shear-Alfvén equation for the electrostatic potential $\phi$ in variational
@@ -300,9 +320,18 @@ $G' + \iota I' = -\mu_0p'R_0/B_0$.
 
 ### Fourier–finite-element basis
 
+The unknown is the physical potential $\phi$ itself, so the inertia is the vorticity $\nabla_\perp\phi$ with the full metric, and the
+bending term differentiates $u = \mathbf B\cdot\nabla\phi/B$, which depends on $s$ through $\iota(s)$ and $G + \iota I$. Those radial
+derivatives are the shear term of {eq}`shear-term`. The expansion is
+
 $$
 \phi(s,\theta,\zeta) = \sum_{k=1}^{N}\sum_{j=1}^{H} y_{kj}\,f_k(s)\,e_j(\theta,\zeta),
 $$
+
+```{image} _static/theory_basis.png
+:alt: radial hat functions on the surfaces with the axis and edge nodes, and the block-tridiagonal pattern of F and G
+:width: 90%
+```
 
 where $f_k$ are linear hat functions on the nodes $0 < s_1 < \dots < s_N < 1$
 (the geometry surfaces, with the axis and the edge added as end nodes). Then
@@ -354,7 +383,8 @@ D_{ij} = \langle w\,\mathbf V_{1i}^*\cdot\mathbf V_{1j}\rangle ,
 $$
 
 with $\mathbf a^*\cdot\mathbf b = a_i^*g^{ij}b_j$ on the
-$(\nabla s,\nabla\theta,\nabla\zeta)$ components. As in AE3D, each block is
+$(\nabla s,\nabla\theta,\nabla\zeta)$ components. The angle averages in the blocks use the same FFT quadrature as section 2: the
+products $\mathbf V_{0i}^*\cdot\mathbf V_{1j}$ are formed per metric component on the grid and reduced with `angle_mean`. As in AE3D, each block is
 averaged over a radial element (the mean of its two end surfaces; the axis and
 edge elements reuse the first and last surface). On an element of width $h$
 with left and right hat functions ($f_L' = -1/h$, $f_R' = 1/h$,
@@ -379,7 +409,7 @@ $$ (global-problem)
 with $F$ (bending) and $G$ (inertia) Hermitian and block tridiagonal: $N$
 diagonal blocks $E_{RR}^{(k)} + E_{LL}^{(k+1)}$ and $N - 1$ off-diagonal
 blocks $E_{LR}$ ({func}`fax.global_matrices`, which returns the two
-`Blocks`). The angle averages carry no $4\pi^2$, which cancels in
+`Blocks`). The function checks that the density is positive and that every surface lies strictly inside $(0, 1)$. The angle averages carry no $4\pi^2$, which cancels in
 {eq}`global-problem`.
 
 ### Boundary conditions
@@ -400,6 +430,9 @@ modes appear as isolated eigenvalues.
 
 ## 5. Block-tridiagonal shift-invert solver
 
+Frequencies of interest sit in the interior of the spectrum, where a plain Lanczos or dense solve is wasteful. Shift-invert turns the
+nearest eigenvalues into the dominant ones, and the block-tridiagonal structure makes each inversion cost $O(NH^3)$.
+
 The modes of interest lie in the interior of the spectrum, near a target
 $\sigma = (2\pi f_\mathrm{target})^2$. {func}`fax.eigenmodes` with
 `target_hz` hands the Hermitian block-tridiagonal pencil to
@@ -411,11 +444,19 @@ $\sigma = (2\pi f_\mathrm{target})^2$. {func}`fax.eigenmodes` with
    checks every factorization; if a Schur pivot has broken down (for example
    $\begin{pmatrix}0&1\\1&0\end{pmatrix}$), a dense pivoted LU takes over for
    $NH \le 2048$ and `Status.fallback` is set.
-2. Iterate a block of $p = \min(2\,\mathrm{count} + 8, NH)$ vectors,
-   $Y \leftarrow \mathrm{qr}\big((F - \sigma G)^{-1} G\,Y\big)$, with Rayleigh–Ritz on
-   $(F, G)$ each step, until the `count` values nearest $\sigma$ and the nearest
-   excluded one reach the relative residual `tol` (default 1e-10) or `iters`
+2. Start from a block $Y$ of $p = \min(2\,\mathrm{count} + 8, NH)$ vectors. Each sweep applies the shift-invert operator
+   $S = (F - \sigma G)^{-1}G$ three times, orthogonalizing between applications, which spans a block Krylov window of $3p$ vectors.
+   Rayleigh–Ritz is done for $S$ on that window. $S$ is $G$-self-adjoint with real Ritz values $\mu$, and the wanted pairs have the
+   largest $|\mu|$, where $\lambda = \sigma + 1/\mu$. Ranking by $|\mu|$ matters: Rayleigh–Ritz on $F$ itself is
+   indefinite near $\sigma$, and a mixture of eigenvectors from both sides of the target gives a ghost pair with Ritz value near
+   $\sigma$ and a large residual that would outrank the true modes and never leave the iteration. The sweeps repeat until the `count`
+   values nearest $\sigma$ and the nearest excluded one reach the relative residual `tol` (default 1e-10) or `iters`
    (default 100) is exhausted. Eigenvectors are $G$-normalized.
+
+```{image} _static/theory_ritz.png
+:alt: eigenvalues near the shift and their ranking by the magnitude of the shift-invert Ritz value
+:width: 85%
+```
 
 {class}`fax.eigen.Status` reports the worst residual, the $G$-orthogonality, the
 iterations, `converged` and the selection `gap` (distance to the target of the
@@ -426,6 +467,9 @@ matrices and solves all $NH$ modes (SOLVAX has no all-modes dense route, so
 both solvers at equal accuracy are in {ref}`performance <performance>`.
 
 ## 6. Eigenvalue derivatives (Hellmann–Feynman)
+
+Optimization needs the gradient of a frequency with respect to the geometry. Because the pencil is Hermitian, that gradient needs only the
+converged eigenvector and the derivatives of the matrices, never a derivative of the solver.
 
 For $Fy = \lambda Gy$ with Hermitian $F$, positive-definite $G$ and
 $y^\dagger Gy = 1$, differentiate and multiply by $y^\dagger$; the terms in
@@ -445,7 +489,7 @@ dense `eigh`:
   `converged` and `gap > 0`, in forward and reverse mode, so an unconverged
   or tie-splitting solve is rejected rather than silently used;
 - {func}`fax.eigenvalue_mean` applies it to dense eigenvalues
-  `start <= i < stop` and returns the **mean**,
+  `start <= i < stop` and returns the mean,
   $\bar\lambda = \frac1k\sum_{i}\lambda_i$, whose derivative
   $\frac1k\sum_i y_i^\dagger(\delta F - \lambda_i\delta G)y_i$ is the trace of
   the perturbation projected on the cluster. It stays smooth when
@@ -460,6 +504,9 @@ $\iota$, density) are ordinary JAX derivatives of the assembly.
 
 (vmex-gradients)=
 ## 7. vmex boundary gradients
+
+This section follows the chain from the plasma boundary to a frequency. The equilibrium solve is differentiated implicitly and the
+Boozer geometry comes from one traced vmex call, so a gradient costs one forward solve and one adjoint.
 
 {func}`fax.prepare_design` and {func}`fax.design_geometry` chain
 
@@ -477,14 +524,21 @@ $$
 - **Parameters.** Names `rc|rs|zc|zs` + `m` + `n` select `RBC`, `RBS`, `ZBC`,
   `ZBS` entries; `"zs01"` is `ZBS(n=1, m=0)`. Offsets are added to the input's
   coefficients.
-- **Boozer transform.** `vmex.core.omnigenity.boozer_spectrum_state` (vmex 0.13 or
+- **Boozer transform.** `vmex.core.omnigenity.boozer_spectrum_state(..., geometry=True)` (vmex 0.13 or
   later) traces `booz_xform_jax` on every half-mesh row $j \ge 1$,
-  $s = (j - 1/2)/(n_s - 1)$, and returns the geometry in one call.
+  $s = (j - 1/2)/(n_s - 1)$, and returns the Boozer harmonics of $|B|$, $R$, $Z$, $p$ and the Jacobian together with $\iota$, $G$ and $I$ in
+  one call; {func}`fax.geometry.from_booz_xform` converts it. The Jacobian and the cylindrical-angle offset no longer need a
+  separate reconstruction from the $j = 1$ row.
 - **Radial grid.** {meth}`fax.geometry.Geometry.interpolate` maps that geometry,
   linearly in $s$ and extrapolated to $s = 0, 1$ (harmonics with $m > 0$ follow
-  $(s/s_0)^{m/2}$ below the first surface), onto `nodes` uniform FE
+  $(s/s_0)^{m/2}$ below the first surface, the regular behaviour $r^m$ with $r \sim \sqrt s$; the figure below compares it with the straight line), onto `nodes` uniform FE
   nodes $k/(\text{nodes} + 1)$. The radial domain is always $[0, 1]$, and the
   FE grid refines independently of $n_s$ and `mboz`.
+```{image} _static/theory_axis.png
+:alt: a harmonic below the first surface, linear extrapolation against the regular power law
+:width: 85%
+```
+
 - **Spectrum.** {func}`fax.geometry_frequencies` returns the lowest
   frequencies (dense) or those nearest `target_hz` (shift-invert). Both carry
   the {eq}`hellmann-feynman` JVP, so a smooth objective
@@ -495,12 +549,18 @@ $$
   path. Re-solve finite differences therefore differ from the adjoint by the
   response to that drift: 4.4e-4 for $\iota$ wrt `zs01`, about 3e-5 for the
   global frequencies wrt `rc01`, `zs01`, `rc10`, and 2.7e-3 wrt the $m = 1$
-  coefficient `zs11`. Adding the drift response closes the $\iota$ gap to 3e-9.
+  coefficient `zs11` (vmex before 0.14). Adding the drift response closes the
+  $\iota$ gap to 3e-9. vmex 0.14 holds the $m = 1$ family in the implicit solve,
+  and the remainders for `zs01` and `zs11` fall to 3e-7 and 1.2e-6
+  ({doc}`validation`, Gradients).
 
 `jax.grad` of any scalar of {func}`fax.design_frequencies` therefore costs one
 forward solve plus one adjoint equilibrium solve.
 
 ## 8. Perturbative fast-ion drive
+
+Given a mode from section 4, this section computes the power that a population of passing fast ions exchanges with it and turns that
+into a growth rate. The derivation fixes which orbit invariants the distribution depends on, because that choice sets the gradient term.
 
 The growth rate of a fixed eigenmode is the power the fast ions give to it
 over twice its energy (Chen & Zonca 2016, eq. 3.22; NOVA-K and CAS3D-K form),
@@ -709,6 +769,9 @@ $B_s$ in the drift.
 
 ## 9. Smooth objectives
 
+An optimizer needs functions of the spectrum that stay differentiable when modes cross or the widest gap changes owner. The functions
+below replace the hard counts and maxima with smooth surrogates.
+
 Eigenvalues and gaps are not smooth (crossings, `max`), so the objectives are:
 
 | Function | Definition |
@@ -728,6 +791,10 @@ keep objectives smooth through crossings inside the cluster.
 
 (continuum-objective)=
 ## 10. Continuum-gap objective
+
+This section gives the geometric proxy used by the optimization example: the size of the continuum gaps that a given $|\nabla s|^2$ spectrum
+opens, weighted so that gaps a fast ion can resonate with cost the most. It ends with the classifier that tells an objective whether a mode
+is a gap mode or a discrete sample of the continuum.
 
 Gaps open where the flux compression $|\nabla\psi|^2$ varies on a surface
 (sections 2–3). Paul et al. (2025, eq. 4.28) write the coupling as
@@ -823,7 +890,7 @@ A mode is isolated when both solves converged, the shift is below `shift_tol` (1
 unresolved modes (a continuum mode converges in $L^2$ trivially, with shift below 1% and overlap above 0.95).
 
 {func}`fax.geometry_frequencies`, {func}`fax.design_frequencies` and {func}`fax.geometry_growth_rates` are
-**first order** in the geometry (rule 5 of the plan): they return the solver `Status` and are NaN, values and derivatives, unless the solve
+first order in the geometry (rule 5 of the plan): they return the solver `Status` and are NaN, values and derivatives, unless the solve
 converged and its selection does not split a tied set ($\mathrm{gap} > 10^{-8}\max|\omega^2|$). The classification is a separate, non-differentiable
 check that the selected modes are the ones the objective is meant to move.
 

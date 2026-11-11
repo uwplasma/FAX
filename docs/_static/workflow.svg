@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#55606b"/></marker></defs>
+<rect width="760" height="250" fill="#fff"/>
+<g fill="#eef4f9" stroke="#0f5c8c" stroke-width="1.4">
+<rect x="10" y="30" width="130" height="62" rx="8"/><rect x="175" y="30" width="130" height="62" rx="8"/><rect x="340" y="30" width="130" height="62" rx="8"/>
+</g>
+<g fill="#0f5c8c" stroke="#0f5c8c" stroke-width="1.4"><rect x="505" y="10" width="245" height="160" rx="10" fill="#f7fafc"/></g>
+<g fill="#fff" stroke="#0f5c8c"><rect x="520" y="40" width="215" height="32" rx="6"/><rect x="520" y="80" width="215" height="32" rx="6"/><rect x="520" y="120" width="215" height="32" rx="6"/></g>
+<g fill="#fdf3e7" stroke="#b5651d" stroke-width="1.4"><rect x="175" y="170" width="295" height="56" rx="8"/></g>
+<g text-anchor="middle" fill="#1d2731">
+<text x="75" y="56" font-weight="bold">Boundary</text><text x="75" y="76">VMEC Fourier modes</text>
+<text x="240" y="56" font-weight="bold">Equilibrium</text><text x="240" y="76">VMEX</text>
+<text x="405" y="56" font-weight="bold">Boozer spectrum</text><text x="405" y="76">B, ι, G, I, metric</text>
+<text x="627" y="30" font-weight="bold" fill="#0f5c8c">FAX</text>
+<text x="627" y="61">continuum and gaps</text><text x="627" y="101">global eigenmodes (SOLVAX)</text><text x="627" y="141">fast-ion drive, damping</text>
+<text x="322" y="194" font-weight="bold" fill="#8a4a12">Objective</text><text x="322" y="213">gap width, mode frequency, growth rate</text>
+</g>
+<g stroke="#55606b" stroke-width="1.5" fill="none" marker-end="url(#a)">
+<path d="M140 61H173"/><path d="M305 61H338"/><path d="M470 61H503"/><path d="M627 170V198H472"/>
+<path d="M175 198H75V94" stroke="#b5651d" stroke-dasharray="5 4"/>
+</g>
+<text x="80" y="140" fill="#8a4a12" font-size="12">gradient by implicit</text><text x="80" y="156" fill="#8a4a12" font-size="12">differentiation (JAX)</text>
+</svg>

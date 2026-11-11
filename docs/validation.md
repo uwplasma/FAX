@@ -5,11 +5,29 @@ or a published number. CI runs them on Python 3.10–3.13 in float64. The number
 below are the test thresholds and the measured values of the tests named here.
 
 **Scope.** FAX is a reduced model: restricted finite-$\beta$ terms (experimental), no sound coupling or BAE, no continuum or
-electron damping, no trapped particles, finite orbit width or finite Larmor radius in the drive, which is zero-orbit-width,
+electron damping in the released code, no trapped particles, finite orbit width or finite Larmor radius in the drive, which is zero-orbit-width,
 passing-only and perturbative (valid to about 200 keV in the Könies case). Every gate below is a statement inside that scope;
 "Not done" at the end lists the rest. Derivatives are first order ({doc}`api`).
 
 ## Summary
+
+Gate status at a glance. "Pass" means the test named in the detailed table below holds at its stated tolerance; "open" means the
+gate is not met or not yet run. The numbers behind each row are in the detailed table and in the sections after it.
+
+| Area | Status | Notes |
+|---|---|---|
+| Continuum: uniform field, quadrature, STELLGAP CTOK, gap formulas | pass | CTOK mean 6.3e-3, p95 6.6e-3 |
+| Global operator: AE3D CTOK modes, real-space quadrature, manufactured solution, uniform-field continuum | pass | 6 modes within 1.4% |
+| AE3D CTOK TAE (337.9 kHz) | open | not reproduced; three $\iota'$ terms of AE3D v31's bending blocks differ from the energy, so the cause is unresolved |
+| Precise QA of Knyazev et al. 2026 | pass in part | continuum 3.0e-3; the archived global mode is within 2% in energy at 24-64 harmonics, with no single-mode match (overlap 0.18) |
+| Könies 2018 ITPA TAE frequency and drive | pass | 4.0610e5 rad/s; growth rates pinned to 1e-3 |
+| ITPA passing-only drive against the CAS3D-K (ZOW) curve | open | ratio 0.58-0.60; the unmatched content is not a validation |
+| Fu-Van Dam scaling and ZOW coefficient | pass | 1e-3 |
+| Finite-$\beta$ terms | pass, restricted | real-space quadrature 0.2-0.3%; experimental |
+| Eigenvalue and drive gradients | pass | 1e-5 against finite differences; first order only |
+| Boundary gradient through vmex | pass | AD against FD 1e-4; with vmex 0.14 the re-solve remainder for `zs01` and `zs11` closes to 3e-7 and 1.2e-6 (see Gradients) |
+| Optimization of drive and gaps | exploratory | the LP-QA drive run lowers $\gamma_\mathrm{max}$ by 4.4% |
+| Continuum damping | open | prototype only, see Not done |
 
 | Gate | Test | Result |
 |---|---|---|
@@ -651,16 +669,18 @@ tokamak gates use {func}`fax.circular_torus`, axisymmetric (`helical = 0`,
 
 ## Not done
 
-- **Sound and fast-wave coupling** (no BAE gap; $\gamma p|\nabla\cdot\boldsymbol\xi|^2$
+- Sound and fast-wave coupling (no BAE gap; $\gamma p|\nabla\cdot\boldsymbol\xi|^2$
   dropped) and the cause of the disagreement between AE3D's and FAX's $J_\parallel$ blocks for CTOK.
-- **Trapped and precessing fast ions** in the drive (bounce-averaged
+- Trapped and precessing fast ions in the drive (bounce-averaged
   precession resonances), and the covariant $B_s$ and $\delta B_\parallel$ in the drift.
-- **Finite orbit width** and finite Larmor radius in the drive.
-- **Continuum and electron Landau damping** are not computed (subtract an
-  external $\gamma_d$).
-- **AE3D LHD (37, 73.7 kHz) and QPS (149 kHz)** published frequencies need
+- Finite orbit width and finite Larmor radius in the drive.
+- Continuum damping is a prototype, not a released feature. A complex-contour prototype of the reduced model gives a damping
+  1.37x that of an independent 1-D model for the Bowden-Hole-Könies tokamak TAE (arXiv:1507.02072), and the root selection across
+  contour depths is unsettled, so no number is quoted as a result. The program and its acceptance targets are in section H of
+  `plan.md`. Electron Landau damping is not computed either: subtract an external $\gamma_d$.
+- AE3D LHD (37, 73.7 kHz) and QPS (149 kHz) published frequencies need
   their equilibria; Mishchenko et al. (2011) is not yet a gate.
-- **Optimization**: HSX optimization (the HSX fixed-boundary decks are
+- Optimization: HSX optimization (the HSX fixed-boundary decks are
   mpol 18, ntor 24, and were not reduced or run); a larger $\gamma_\mathrm{max}$ reduction (the 4-coefficient LP-QA
   `--drive` run lowers it by only 4.4%, 8500 → 8123 s⁻¹, at QS 1.1e-6 → 1.6e-6); a
   fast-ion resonance-band term; higher resolution ($n_s \ge 25$) and longer

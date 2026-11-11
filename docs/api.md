@@ -1,8 +1,10 @@
 # API reference
 
-`import fax` exposes the functions below at the top level (for example
+`import fax` exposes the names in `fax.__all__` at the top level (for example
 `fax.continuum` is {func}`fax.continuum.continuum`). Importing FAX enables
-JAX float64.
+JAX float64. A few names used below live only in their modules: `jacobian_check` and `SurfaceGrid` in `fax.geometry`,
+`equilibrium_currents`, `targeted_eigenpairs` and `Status` in `fax.eigen`, `main` in `fax.io` (the `fax` command) and
+`plot_results` in `fax.plot`.
 
 ## Derivative contract
 
@@ -19,8 +21,9 @@ need `jax.grad(..., allow_int=True)`.
 | `read_boozmn`, `from_wout`, `from_vmec_input` | none (host I/O) | none | `ValueError` on malformed files; `from_vmec_input` needs the `vmex` extra |
 | `surface_grid`, `jacobian_check` | every `Geometry` float leaf | jit, grad | diagnostics only; no status |
 | `continuum`, `continuum_matrices` | `Geometry` leaves, `density` | jit, grad, jvp, vjp, vmap | host `ValueError` for `rho <= 0`, `G + iota I = 0`, or an angle grid that aliases the harmonics (`ntheta > 2 max|dm|`) |
+| `mass_density`, `mode_family` | `n_ion` (`mass_density`; the mass is in atomic mass units) | jit, grad | `mode_family` is host-side: it builds the static `(m, n)` list |
 | `gaps`, `gap_location` | `frequencies_hz` (`gaps`) | jit, grad | the widest gap switches branch where two gaps tie: a kink (use `gap_closure`) |
-| `global_matrices` | `Geometry` leaves, `density` | jit, grad, jvp | `finite_beta` is restricted and experimental |
+| `global_matrices` | `Geometry` leaves, `density` | jit, grad, jvp | host `ValueError` for `density <= 0` or surfaces outside the open interval (0, 1); `finite_beta` is restricted and experimental |
 | `eigenmodes`, targeted | `Geometry` leaves, `density`: `omega2`, `structures` | jit, jvp, vjp | **first order only.** `status` (`Status`: `residual`, `orthogonality`, `iterations`, `converged`, `gap`, `fallback`) is returned, not enforced: modes come back even if unconverged. Tangents are NaN unless `converged` and `gap > 1e-8 max|omega2|` |
 | `eigenmodes`, dense (`target_hz=None`) | same | jit, jvp, vjp | `status` from the dense residual; derivatives of single modes are undefined at a degeneracy |
 | `frequency_hz` | `Geometry` leaves, `density` | jit, grad, jvp, vjp, vmap | value **and** tangent are NaN unless the targeted solve `converged` (and, for the tangent, `gap` is not a tie). Returns 0 where the mean `omega2 <= 0`; `growth=True` gives the ideal growth rate instead |
@@ -44,7 +47,8 @@ means the selection splits a tied set and has no derivative. The transforms and 
 |---|---|---|
 | Conventions, $\sqrt g$, $B^\zeta$, $k_\parallel$ (section 1) | `surface_grid`, `jacobian_check`, `equilibrium_currents` | `test_conventions_and_geometry_diagnostics_on_ctok` |
 | $K x = \omega^2 M x$, {eq}`continuum-galerkin` (section 2) | `continuum_matrices`, `continuum` | `test_uniform_field_continuum_is_k_parallel_v_alfven`, `test_stellgap_ctok_parity` |
-| Gap location and full width $2 f_0 \lvert c\rvert$, {eq}`gap-location` (section 3) | `gaps`, `gap_location` | `test_gaps_and_gap_location`, `test_elliptic_two_mode_gap_has_full_width_two_f0_c` |
+| Gap location and full width $2 f_0 \lvert c\rvert$, {eq}`gap-location` (section 3) | `mass_density`, `mode_family` | `n_ion` (`mass_density`; the mass is in atomic mass units) | jit, grad | `mode_family` is host-side: it builds the static `(m, n)` list |
+| `gaps`, `gap_location` | `test_gaps_and_gap_location`, `test_elliptic_two_mode_gap_has_full_width_two_f0_c` |
 | $F y = \omega^2 G y$, {eq}`global-problem` (section 4) | `global_matrices`, `eigenmodes` | `test_ae3d_ctok_parity`, `test_ctok_bending_energy_matches_real_space_quadrature`, `test_konies_tae_frequency_and_convergence` |
 | AE3D block comparison, shear term {eq}`shear-term` | `global_matrices` | `test_ae3d_v31_blocks_and_energy_on_identical_inputs` |
 | Kink and pressure terms, {eq}`kink-forms` (restricted) | `global_matrices(finite_beta=True)` | `test_kink_forms_differ_by_the_curl_b_term`, `test_finite_beta_terms_match_real_space_quadrature`, `test_cylinder_newcomb_m1_and_suydam_threshold` |
