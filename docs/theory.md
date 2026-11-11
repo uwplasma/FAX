@@ -409,7 +409,7 @@ $$ (global-problem)
 with $F$ (bending) and $G$ (inertia) Hermitian and block tridiagonal: $N$
 diagonal blocks $E_{RR}^{(k)} + E_{LL}^{(k+1)}$ and $N - 1$ off-diagonal
 blocks $E_{LR}$ ({func}`fax.global_matrices`, which returns the two
-`Blocks`). The function checks that the density is positive and that every surface lies strictly inside $(0, 1)$. The angle averages carry no $4\pi^2$, which cancels in
+`Blocks`). The function checks that the density is positive, that every surface lies strictly inside $(0, 1)$ and that no $(m, n)$ harmonic is listed twice, which would make the mass matrix singular. The angle averages carry no $4\pi^2$, which cancels in
 {eq}`global-problem`.
 
 ### Boundary conditions

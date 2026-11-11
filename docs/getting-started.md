@@ -81,9 +81,8 @@ arguments, NaN for rejected solves); see {doc}`tutorials`.
 ## TOML reference
 
 A case has four tables. Every key is optional and takes the default below
-(`fax.io.DEFAULTS`); unknown tables or keys raise `ValueError`. The solver rejects a non-positive density and surfaces outside
-the open interval (0, 1). Relative
-`geometry.path` and `run.output` are resolved against the case file.
+(`fax.io.DEFAULTS`); unknown tables or keys raise `ValueError`. The solver rejects a non-positive density, surfaces outside
+the open interval (0, 1) and a repeated `(m, n)` harmonic. Relative `geometry.path` and `run.output` are resolved against the case file.
 
 ### `[geometry]`
 
