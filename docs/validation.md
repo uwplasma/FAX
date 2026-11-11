@@ -149,11 +149,11 @@ Storage follows the model exactly: the factors are $N H^2$ complex numbers (1.00
 time is not yet in its asymptotic regime: at 1-14 ms it is dominated by the sequential scan over the $N$ blocks and small-block
 overhead, and from $H = 24$ to $48$ it grows as $H^{2.0}$, not $H^3$. Two things the model does not capture dominate the
 solve: it is iteration-bound, not factorization-bound (the factor is at most 3% of the solve time at $H = 12$), and the iteration
-count at fixed $\eta$ is not constant. For the Könies TAE it rises with $N$ (17, 33, 112, 310, more than 1000 iterations at
-$N$ = 200 ... 3200) as the continuum accumulates around the gap, so the solve time grows faster than linearly in $N$ (about
-$N^{2.3}$) while the dense cost $(NH)^3$ stays 100x-1000x larger at these sizes; it also varies non-monotonically with the
-number of modes (22, 17, 55, 28, 44). The $N = 3200$ solve stopped at the iteration cap with $\eta = 2.8\times10^{-10}$ and
-is not a valid equal-accuracy point. SOLVAX's dense pivoted fallback is compiled in only for $NH \le 2048$ (`dense_limit`),
+count at fixed $\eta$ is not constant. For the Könies TAE it rises with $N$ as the continuum accumulates around the gap: 17, 33,
+112, 310 and more than 1000 iterations at $N$ = 200 ... 3200 with SOLVAX 0.32, and 4, 5, 11, 34, 121 with SOLVAX 0.36 (warm solve
+0.05 to 15 s, about $N^2$, 8 threads), while the dense cost $(NH)^3$ stays 100x-1000x larger at these sizes. With 0.32 the
+iteration count also varied non-monotonically with the number of modes (22, 17, 55, 28, 44), and the $N = 3200$ solve stopped at the iteration cap with $\eta = 2.8\times10^{-10}$;
+with 0.36 it converges. SOLVAX's dense pivoted fallback is compiled in only for $NH \le 2048$ (`dense_limit`),
 which is why the CTOK static buffers (84 MB) are larger than the factor alone would need and why the sweeps start above that size.
 
 **Replaced claims.** The previous table compared a fixed 40 iterations at `tol = 1e-6` with `generalized_eigenpairs` at
