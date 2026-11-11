@@ -68,18 +68,18 @@ def test_selected_frequencies_carry_status_and_unconverged_solves_are_rejected()
         dense, fax.eigenmodes(geo.interpolate(jnp.arange(1, 25) / 25), HARMONICS, RHO, ntheta=16, nzeta=4).frequencies_hz[:3], rtol=1e-10
     )
     assert dstatus.converged and dstatus.gap > 0 and dstatus.iterations == 0
-    f, status = fax.geometry_frequencies(geo, design(iters=1), 3)
+    f, status = fax.geometry_frequencies(geo, design(tol=1e-30), 3)
     assert not status.converged and jnp.isnan(f).all()
     tangent = jax.tree_util.tree_map(jnp.ones_like, geo.iota)
     assert jnp.isnan(
-        jax.jvp(lambda i: fax.geometry_frequencies(replace(geo, iota=i), design(iters=1), 1)[0], (geo.iota,), (tangent,))[1]
+        jax.jvp(lambda i: fax.geometry_frequencies(replace(geo, iota=i), design(tol=1e-30), 1)[0], (geo.iota,), (tangent,))[1]
     ).all()
     ok = fax.eigen.Status(*(jnp.asarray(v) for v in (0.0, 0.0, 1, True, 1.0, False)))
     assert _reject(jnp.ones(2), ok, jnp.ones(2)).tolist() == [1.0, 1.0]
     assert jnp.isnan(_reject(jnp.ones(2), ok._replace(gap=jnp.asarray(1e-12)), jnp.ones(2))).all()  # a selection that splits a tied set
     ions = fax.FastIons(density=1e15 * (1 - jnp.arange(1, 25) / 25) ** 2, temperature_ev=150e3)
-    rates = lambda iters: fax.geometry_growth_rates(geo, design(iters=iters), ions, 2, ntheta=16, nzeta=4)  # noqa: E731
-    assert jnp.isfinite(rates(100)).all() and jnp.isnan(rates(1)).all()
+    rates = lambda tol: fax.geometry_growth_rates(geo, design(tol=tol), ions, 2, ntheta=16, nzeta=4)  # noqa: E731
+    assert jnp.isfinite(rates(1e-10)).all() and jnp.isnan(rates(1e-30)).all()
 
 
 def test_gap_closure_is_smooth_where_the_widest_gap_changes():

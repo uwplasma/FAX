@@ -123,7 +123,7 @@ def test_documented_transforms_and_failure_behaviour():
     f = lambda r, **kw: fax.frequency_hz(geo, h, r, 2, 3, **solve, **grid, **kw)  # noqa: E731
     grad = jax.vmap(jax.grad(f))(rho * jnp.array([1.0, 2.0]))  # d f / d rho = -f / 2 rho for f ~ rho^-1/2
     np.testing.assert_allclose(grad, -jax.vmap(f)(rho * jnp.array([1.0, 2.0])) / (2 * rho * jnp.array([1.0, 2.0])), rtol=1e-6)
-    assert jnp.isnan(f(rho, iters=1)) and jnp.isnan(jax.grad(lambda r: f(r, iters=1))(rho))  # unconverged: value and tangent rejected
+    assert jnp.isnan(f(rho, tol=1e-30)) and jnp.isnan(jax.grad(lambda r: f(r, tol=1e-30))(rho))  # unconverged: value and tangent rejected
     omega2 = jax.jit(lambda g, r: fax.eigenmodes(g, h, r, **solve, **grid).omega2)(geo, rho)
     assert omega2.shape == (3,) and (omega2 > 0).all()
     ions, drive = fax.FastIons(1e17, 2e5), dict(helical=0, nzeta=1, ntheta=16, nodes=8)
