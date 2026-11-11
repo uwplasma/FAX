@@ -144,18 +144,18 @@ def _surface_major(variable: Any) -> np.ndarray:
 
 
 def from_booz_xform(output: dict[str, Any], s: Any, nfp: int) -> Geometry:
-    """Convert a ``booz_xform_jax`` output dictionary (traceable)."""
+    """Convert a ``booz_xform_jax`` output or a ``vmex.core.omnigenity.boozer_spectrum_state`` dictionary (traceable)."""
     arrays = {name: output[f"{name}_b"] for name in _MODES if f"{name}_b" in output}
     if "gmnc" not in arrays and "gmn_b" in output:
         arrays["gmnc"] = output["gmn_b"]
     return Geometry.from_arrays(
         nfp,
         s=s,
-        xm=output["ixm_b"],
-        xn=output["ixn_b"],
+        xm=output.get("ixm_b", output.get("xm_b")),
+        xn=output.get("ixn_b", output.get("xn_b")),
         iota=output["iota_b"],
-        G=output["bvco_b"],
-        I=output["buco_b"],
+        G=output["bvco_b"] if "bvco_b" in output else output["G_b"],
+        I=output["buco_b"] if "buco_b" in output else output["I_b"],
         **arrays,
     )
 

@@ -43,7 +43,7 @@ fax = "fax.io:main"
 
 [project.optional-dependencies]
 plot = ["matplotlib"]
-vmex = ["vmex>=0.11.10; python_version >= '3.11'"]
+vmex = ["vmex>=0.13.0; python_version >= '3.11'"]
 test = ["pytest", "coverage", "matplotlib"]
 docs = ["sphinx", "furo", "myst-parser"]
 dev = ["alfvex[test,docs]", "ruff", "build", "twine"]

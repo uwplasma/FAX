@@ -121,7 +121,7 @@ A and B start now. C runs in parallel with A/B. D needs C. E needs B and D. F ca
 **Gate:** one independent 3-D spectrum and one matched nonzero kinetic response.
 
 ### G. Release 1.0 (FAX)
-- [x] Coverage ≥ 95/95. Three test tiers: PR (analytic and contracts), scheduled (VMEX gradients, 3-D references, min/max dependency stacks), release (external comparisons, CPU/GPU). Done: markers `slow`/`scheduled` only; PR matrix and coverage job (`-m 'not scheduled'`, 100/100); `scheduled.yml` adds the minimum (3.10, JAX 0.4.38, SOLVAX 0.36.0), minimum-vmex (3.11, vmex 0.11.10, JAX 0.9.2) and latest (3.13) stacks; the release checklist is in `docs/development.md`.
+- [x] Coverage ≥ 95/95. Three test tiers: PR (analytic and contracts), scheduled (VMEX gradients, 3-D references, min/max dependency stacks), release (external comparisons, CPU/GPU). Done: markers `slow`/`scheduled` only; PR matrix and coverage job (`-m 'not scheduled'`, 100/100); `scheduled.yml` adds the minimum (3.10, JAX 0.4.38, SOLVAX 0.36.0), minimum-vmex (3.11, vmex 0.13.0, JAX 0.9.2) and latest (3.13) stacks; the release checklist is in `docs/development.md`.
 - [x] One fixture provenance manifest (identifier, hash, model switches, units, license, command, tolerance). Add `CITATION.cff`. Done; numbers and tests in `docs/validation.md`.
 - [x] README of 600–900 words with scope and unsupported physics stated next to supported physics. Fix the AE3D and drive-band wording. The installed-wheel quickstart runs outside a checkout. Done; numbers and tests in `docs/validation.md`.
 - [x] Docs and examples pass (rule 10). Done; numbers and tests in `docs/validation.md`.

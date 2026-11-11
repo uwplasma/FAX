@@ -20,7 +20,7 @@ Three tiers, selected by two markers (`slow`, `scheduled`) and the workflow that
 | Tier | Contents | Runs |
 |---|---|---|
 | PR | analytic and contract tests (unmarked) in the Python 3.10–3.13 matrix and on the oldest stack (Python 3.10, JAX 0.4.38, SOLVAX 0.36.0); `slow` (vmex solves, 64-harmonic AE3D band) added in the coverage job; the installed-wheel smoke test; lint, coverage ≥ 95% (statements and branches, `-m 'not scheduled'`), docs, CITATION.cff | every PR and push (`tests.yml`) |
-| Scheduled | `scheduled`: frozen-path gradients, resolution budgets, gauge floors; the same minimum stack with the `slow` tests, the minimum vmex stack (Python 3.11, vmex 0.11.10, JAX 0.9.2) and the latest stack (Python 3.13, everything upgraded) | weekly and on demand (`scheduled.yml`) |
+| Scheduled | `scheduled`: frozen-path gradients, resolution budgets, gauge floors; the same minimum stack with the `slow` tests, the minimum vmex stack (Python 3.11, vmex 0.13.0, JAX 0.9.2) and the latest stack (Python 3.13, everything upgraded) | weekly and on demand (`scheduled.yml`) |
 | Release | external comparisons and high-resolution runs; see the checklist below | by hand before a tag |
 
 ```console
