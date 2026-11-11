@@ -30,7 +30,7 @@ def test_generalized_eigh_residual_is_at_roundoff():
 
 
 def test_continuum_gradient_is_finite_and_float64():
-    geo = fax.circular_torus(iota=jnp.linspace(0.3, 0.6, 8))
+    geo = fax.circular_torus(iota=jnp.linspace(0.3, 0.6, 24))
     harmonics = fax.mode_family((1, 2), 2)
     rho = fax.mass_density(1e19, 2.0)
     g = jax.grad(lambda r: jnp.sum(fax.continuum(geo, harmonics, r)))(rho)
