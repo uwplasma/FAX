@@ -30,8 +30,7 @@ jobs:
 
   tests:
     name: Python ${{ matrix.python-version }}
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, uwplasma-cpu]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","macOS","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -48,8 +47,7 @@ jobs:
 
   oldest-jax:
     name: Python 3.10, JAX 0.4.38
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, uwplasma-cpu]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","macOS","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
@@ -62,8 +60,7 @@ jobs:
 
   wheel:
     name: Installed wheel
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, uwplasma-cpu]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","macOS","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -88,8 +85,7 @@ jobs:
 
   full:
     name: Lint, vmex path and coverage
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, uwplasma-cpu]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","macOS","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
