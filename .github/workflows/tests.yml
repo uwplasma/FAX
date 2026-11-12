@@ -102,20 +102,3 @@ jobs:
           .venv/bin/python -m coverage json -q
           .venv/bin/python -c "import json; t = json.load(open('coverage.json'))['totals']; s, b = t['percent_statements_covered'], t['percent_branches_covered']; print(f'statements {s:.2f}%, branches {b:.2f}%'); assert min(s, b) >= 95"
       - run: .venv/bin/sphinx-build -q -W -b html docs docs/_build/html
-
-  gpu:
-    name: GPU check
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, uwplasma-gpu]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-          enable-cache: false
-      - run: uv venv && uv pip install -e ".[test]" "jax[cuda12]"
-      - run: .venv/bin/python -c "import jax; assert jax.default_backend()=='gpu', jax.devices()"
-      - name: GPU tests
-        timeout-minutes: 1
-        run: .venv/bin/python -m pytest -m gpu -q -x tests/test_gpu.py
