@@ -7,7 +7,7 @@ section 7 connects it to vmex, and sections 8 to 10 add the fast-ion drive and t
 Units are SI; frequencies `ω` are in rad/s and the public functions report `f = ω/2π` in Hz.
 
 Scope: the model is the low-β shear-Alfvén ordering of Spong et al.: restricted finite-β terms (section 4, experimental), no
-sound coupling (so no BAE or BAAE), no continuum or electron damping, and a drive for zero orbit width, zero Larmor radius and passing
+sound coupling in the global operator (so no BAE or BAAE modes; the continuum has an opt-in sound coupling, section 2), no continuum or electron damping, and a drive for zero orbit width, zero Larmor radius and passing
 ions only (section 8). {doc}`api` maps each equation to its function and test and states the derivative contract of each function.
 
 ## 1. Boozer coordinates and the metric
@@ -144,6 +144,60 @@ $\omega = |n - m\iota|\,v_A/R_0$, $v_A = B_0/\sqrt{\mu_0\rho}$, exactly.
 $n + kN_{fp}$, so a family is a list `n = [n0, n0 + Nfp, n0 - Nfp, ...]` in
 {func}`fax.mode_family`. Paul et al. (2025) normalize by
 $\omega_A = \langle B^2\rangle/((G + \iota I)\sqrt{\mu_0\rho})$.
+
+### Sound coupling (opt-in)
+
+With `pressure` given, {func}`fax.continuum` adds the acoustic branch and its coupling to the surface displacement through the
+geodesic curvature. The coupled continuum equations are Cheng & Chance (1986, Phys. Fluids 29, 3695), as printed with $\mu_0 = 1$ in
+Bertram, Blackwell & Hole (arXiv:1202.3204, eqs. 9 and 10; the form CONTI solves). Cheng & Chance itself was not available to us. We
+re-extracted those two equations from the PDF image and re-derived them from the ideal-MHD energy below, with the same signs, and
+the result reproduces Winsor's closed form (Tests). With
+$\xi_s = \boldsymbol\xi\cdot(\mathbf B\times\nabla s)/|\nabla s|^2$ and $\Delta = \nabla\cdot\boldsymbol\xi$,
+
+$$
+\left[\mu_0\rho\omega^2\frac{|\nabla s|^2}{B^2} + \mathbf B\cdot\nabla\frac{|\nabla s|^2}{B^2}\mathbf B\cdot\nabla\right]\xi_s
++ \mu_0\gamma p\,\kappa_s\Delta = 0,\qquad
+\kappa_s\xi_s + \left[1 + \frac{\mu_0\gamma p}{B^2} + \frac{\gamma p}{\omega^2\rho}\,\mathbf B\cdot\nabla\frac{1}{B^2}\mathbf B\cdot\nabla\right]\Delta = 0 ,
+$$ (continuum-sound)
+
+where $\kappa_s = 2\,\boldsymbol\kappa\cdot(\mathbf B\times\nabla s)/B^2$ is twice the geodesic curvature, $\gamma$ the adiabatic index
+and $p$ the pressure. At low $\beta$ the $\mu_0\gamma p/B^2$ term and the $p'$ terms are dropped, as in the rest of the section.
+
+**Derivation of the Hermitian form.** At low $\beta$ and large radial wavenumber $k_s$ the displacement is $\boldsymbol\xi_\perp = i k_s\,E\,\mathbf B\times\nabla s/B^2$
+(so $\xi_s = ik_sE$) plus $\xi_\parallel = i k_s\,B\,c$. Since $\boldsymbol\kappa = \nabla_\perp B/B$ and $\nabla\cdot\boldsymbol\xi_\perp = -2\boldsymbol\kappa\cdot\boldsymbol\xi_\perp$
+(the compressional Alfvén term is stiff and vanishes), $\Delta = i k_s D$ with
+
+$$
+D = \kappa_s E + \mathbf B\cdot\nabla c ,\qquad
+\kappa_s = \frac{2\,(I\,\partial_\zeta B - G\,\partial_\theta B)}{\psi'(G + \iota I)\,B} ,
+$$ (kappa-s)
+
+because $\nabla s\cdot(\mathbf B\times\nabla B) = (I\,\partial_\zeta B - G\,\partial_\theta B)/\sqrt g$ and $\sqrt g = \psi'(G+\iota I)/B^2$. The overall sign
+of $\kappa_s$ depends on the orientation of $\sqrt g$ and drops out of the spectrum ($E\to-E$). The energy is
+$\delta W - \omega^2 T$ with $\delta W = \tfrac12\int[\,|\nabla s|^2|\mathbf B\cdot\nabla E|^2/(\mu_0 B^2) + \gamma p|D|^2]$ and $T = \tfrac12\int\rho[\,|\nabla s|^2|E|^2/B^2 + B^2|c|^2]$,
+all $\propto k_s^2$, so $k_s$ cancels. Varying $c^*$ gives the second of {eq}`continuum-sound` after elimination of $c$, and varying $E^*$ the first.
+Expanding in the harmonics $e_j$ of $E$ and $c$ with $\mathbf B\cdot\nabla(c_je_j) = -i\,a_jB^2c_je_j$, $a_j = (n_j - m_j\iota)/(G+\iota I)$, gives the Hermitian pencil
+$K x = \omega^2 M x$ on $x = (E_j, c_j)$ of size $2H$:
+
+$$
+K = \begin{pmatrix} K_A + \gamma p\langle 4J\hat\kappa^2 e_i^*e_j\rangle & -2i\gamma p\,a_j\langle J\hat\kappa B^2 e_i^*e_j\rangle \\ \text{h.c.} & \gamma p\,a_ia_j\langle J B^4 e_i^*e_j\rangle\end{pmatrix},\qquad
+M = \begin{pmatrix} M_A & 0 \\ 0 & \rho\langle J B^2 e_i^*e_j\rangle\end{pmatrix},
+$$ (sound-pencil)
+
+with $J = |\sqrt g_B|$, $\hat\kappa = \kappa_s/2$, $K_A$ and $M_A$ the matrices of {eq}`continuum-galerkin`, and $\psi'$ from
+$\langle|\sqrt g|B^2\rangle/(G+\iota I)$ of the embedding. The mass $M$ stays positive definite, so the Cholesky solver of
+{func}`fax.continuum` is unchanged. For $n = 0$ include $\pm m$ ({func}`fax.mode_family` with `m_min < 0`): $\kappa_s\propto\sin\theta$
+couples $E_0$ to both $c_{\pm1}$. `pressure` (Pa, scalar or one value per surface) and `gamma` (default 5/3) are new keywords of
+{func}`fax.continuum` and {func}`fax.continuum_matrices`; with `pressure=None` nothing changes.
+
+**Limits** (tests `tests/test_continuum.py`).
+
+- *Sound branch.* For $\kappa_s = 0$ the blocks decouple and the acoustic half is $\omega = |k_\parallel|c_s$, $c_s^2 = \gamma p/\rho$.
+- *Geodesic acoustic mode.* For a large-aspect-ratio circular tokamak, $B = B_0(1-\epsilon\cos\theta)$, $\kappa_s = -2\epsilon\sin\theta/\psi'$ and the
+  $m = 0$ potential couples to $c\propto\cos\theta$. The two-by-two pencil has stiffness proportional to a rank-one matrix with mass
+  $\mathrm{diag}(\tfrac14, \tfrac1{2\iota^2})$ in suitable units, giving $\omega^2 = (2\gamma p/\rho R^2)(1 + 1/2q^2)$ (Winsor 1968). The
+  test finds it within $10^{-3}$ for $q = 1.7$ and $3$ at $\epsilon = 0.01$ to $0.08$, the $-3\times10^{-4}$ offset at small $\epsilon$ being of the size of $\beta$ (not isolated).
+- *Acoustic gap top.* The lowest $m = \pm1$ acoustic branch sits at $c_s/(qR)$ to $10^{-3}$ ($O(\epsilon^2)$).
 
 ## 3. Gap formulas
 

@@ -148,8 +148,8 @@ The other codes above cover several things that FAX leaves out.
 Fast-ion physics is the largest gap. FAX has no trapped or precessing particles, no finite orbit width (FOW) and no finite Larmor
 radius (FLR) in the drive, and its drive is a perturbation of a fixed mode, valid to about 200 keV in the Könies case where
 $\gamma/\omega \le 4\%$. Gyrokinetic and hybrid codes such as MEGA, and gyrofluid codes such as FAR3D, include these effects and
-let the mode structure respond to the particles. The reduced model also leaves out sound and compressional coupling, so FAX has no
-BAE or BAAE gap, and its finite-$\beta$ terms are restricted and experimental.
+let the mode structure respond to the particles. The global model also leaves out sound and compressional coupling, so FAX has no
+BAE or BAAE eigenmode (the continuum has opt-in sound coupling and shows the gaps), and its finite-$\beta$ terms are restricted and experimental.
 
 FAX does not compute damping. It has no continuum damping, which CKA addresses with a complex contour, and no electron Landau
 damping. Ion Landau damping of the bulk plasma is available through {func}`fax.ion_landau_damping`, and an external damping
