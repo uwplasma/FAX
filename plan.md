@@ -154,6 +154,23 @@ Gap objectives: Paul et al. (2025) penalise squared Boozer harmonics, not eigenv
 
 Out of scope: a particle pusher inside FAX, nonlinear saturation from prescribed waves, broad GPU, Pallas or sharding rewrites before profiling shows the need.
 
+### I. `vmex --alfven`
+
+One flag that runs FAX on the equilibrium VMEX just solved, or on an existing `wout`, and writes one informative figure and a JSON summary. It mirrors `--turbulence` and `--neoclassical`: a lazy import in `vmex/core/cli.py`, a new `vmex/core/alfven_run.py`, an extra `vmex[alfven] = ["alfvex>=1.0.1", "matplotlib"]`, a floor in `_compat.OPTIONAL_MINIMUMS`, and the usual `MISSING OR OUTDATED OPTIONAL DEPENDENCY` error. FAX must be imported after the solve, because it enables x64 on import.
+
+- FAX side first: `fax.summary(geometry, harmonics, density, window=None, count=4)` returns the gaps, the widest-gap mode and its convergence status. `fax.plot_summary(summary, path)` draws three panels: the continuum with labelled gaps, ι(s) with the gap crossings, and the mode's radial harmonics. vmex then keeps only the defaults and file naming, about 100 lines.
+- Defaults from the equilibrium:
+  - n families `j·nfp` for j = 0, 1, 2, plus n = ±1 when ι < 1;
+  - m up to about `3·max(1, ι_max·n) + 4`, capped at 12;
+  - 12 surfaces, `mboz = nboz = 6`, a 32 × 32 angle grid;
+  - the eigenmode target at the centre of the widest gap.
+  The drive runs only when a `[fast_ions]` table is given.
+- Optional `--alfven-config alfven.toml` uses the `fax run` case schema, and unknown keys are rejected. `--alfven-density` (default 1e19 m⁻³) and `--alfven-ion-mass` (default 2 amu) override it. Both values are printed in the JSON and the figure title, because kHz scales as ρ^(-1/2).
+- Geometry comes in memory, through `boozer_spectrum_state(..., geometry=True)` and `from_booz_xform`, with no file round trip.
+- Outputs: `<case>_alfven.png`, and `<case>_alfven.json` with the gaps (centre and width in kHz, s, type), the mode frequency, its peak radius, its status, and the growth rate if computed.
+- Tests: the missing-extra error, which copies the turbulence test; default selection from nfp and ι; and one end-to-end smoke test under 60 s on a small tokamak (`ns = 8`, `mboz = nboz = 4`).
+- Risks: harmonic selection for HAE gaps, since the cost grows as about H³ per surface; first-call compile time, so the persistent JAX cache should be enabled; and a returned mode that sits in the continuum, which is filtered on `status.gap` and reported.
+
 ## History cleanup (conditional, measured)
 
 - A fresh clone is **29 MiB** for a 1.1 MiB tree. The largest blobs are deleted pre-slim `docs/_static` SVGs (1.5–1.75 MB each, several versions).
