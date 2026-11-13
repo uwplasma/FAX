@@ -51,7 +51,7 @@ Release tier, to be run and recorded in the release notes before every tag (not 
 2. CPU and GPU precision: the CTOK, ITPA and LP-QA gates in float64 on CPU and on one GPU; frequencies agree to the
    validation tolerances and gradients to 1e-6 relative (`jax_enable_x64` is set on import).
 3. High resolution: radial, harmonic and angle refinements of the LP-QA gap-mode objective beyond the scheduled sweeps
-   and `examples/benchmark.py` at equal accuracy.
+   and `examples/benchmark.py` (`RESEARCH = True`) at equal accuracy.
 4. `python -m build`, `twine check`, the smoke test above on the wheel to be uploaded, then `git tag vX.Y.Z` (the tag must
    equal `version` in `pyproject.toml` and `fax.__version__`): the `Publish` workflow uploads through PyPI trusted
    publishing (environment `pypi`). Update `version` and `date-released` in `CITATION.cff` in the same commit.
@@ -76,9 +76,9 @@ tests.
 model switches, units, license, generation command, tolerance); `tests/test_provenance.py` checks its sizes and hashes, so a
 fixture cannot change without an entry. The CTOK `.npz` files are rebuilt from the upstream answer packets by `tests/data/make_ctok_fixtures.py`. The Knyazev et al. (2026) precise-QA fixture (0.67 MB) is rebuilt from the Zenodo archive
 (DOI 10.5281/zenodo.21299907, 1.1 GB, CC-BY-4.0) by `examples/knyazev_qa.py`: download `Knyazev_JPP2026.zip` from
-zenodo.org, set `ARCHIVE` and `REBUILD = True` at the top of the script and run it. The archive is data, never code: the
-script reads members with `zipfile` and parses them as text. The same script holds the comparison helpers the test uses
-and, with `STUDY = True`, regenerates the tables and the figure of {doc}`validation`.
+zenodo.org, set `RESEARCH = True` and `ARCHIVE` at the top of the script and run it. The archive is data, never code: the
+reader in `tests/knyazev_ref.py` reads members with `zipfile` and parses them as text. That module also holds the comparison
+helpers the test uses, and the script with `RESEARCH = True` regenerates the tables and the figure of {doc}`validation`.
 
 ## Contributing
 

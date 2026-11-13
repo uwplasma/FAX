@@ -1,4 +1,4 @@
-# Global AE3D-form eigenmodes of CTOK nearest 384 kHz (AE3D's m = 2, 3 global mode).
+# Global AE3D-form eigenmodes of CTOK nearest 384 kHz (AE3D's m = 2, 3 global mode). The same case through the Python API: examples/ctok_boozmn.py.
 [geometry]
 source = "boozmn"
 path = "../tests/data/boozmn_ctok.nc"
