@@ -4,6 +4,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 PATTERNS = {
     "machine path": r"/Users/|/home/(?!runner)[a-z]|/private/tmp|/data\d+/|C:\\Users",
@@ -14,9 +16,9 @@ HANDLE_OK = {"CITATION.cff", "LICENSE", "pyproject.toml", ".zenodo.json"}
 
 
 def _tracked():
-    out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
-    ).stdout.decode()
+    if not (ROOT / ".git").exists():
+        pytest.skip("needs a git checkout")
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout.decode()
     return [p for p in out.split("\0") if p and p != Path(__file__).relative_to(ROOT).as_posix()]
 
 
