@@ -134,3 +134,37 @@ def test_fixed_geometry_derivative_has_a_step_size_plateau(target):
     assert jnp.isfinite(value) and abs(ad) > 1e-3 * abs(value)
     err = np.abs(_fd_sweep(f, geo, tangent, 10.0 ** -np.arange(1, 10)) / ad - 1)
     assert err[0] / err[1] > 30 and err.min() < 1e-8 and (err < 1e-6).sum() >= 4 and err[-1] > 100 * err.min()
+
+
+# summary and plot_summary
+
+
+def test_summary_tae_gap_and_mode(tmp_path):
+    """The widest gap of a circular torus is the TAE at the cylindrical crossing, and the global mode sits in it."""
+    N, R0, B0, n_i = 24, 10.0, 3.0, 2e19
+    s = (jnp.arange(N) + 0.5) / N
+    geo = fax.circular_torus(
+        s=s, major_radius=R0, minor_radius=1.0, B0=B0, iota=2 / 3 + 0 * s, epsilon_B=0.3
+    )  # the TAE crossing on every surface
+    out = fax.summary(geo, fax.mode_family(1, 2, 1), n_i, ion_mass=1.00727647, count=3, ntheta=16, nzeta=4)
+    iota_c, w_hat = fax.gap_location(1, 1, 1)
+    f_c = w_hat * B0 / np.sqrt(4e-7 * np.pi * float(fax.mass_density(n_i, 1.00727647))) / (2 * np.pi * R0) / 1e3
+    gap = out["gaps"][0]
+    assert gap["type"] == "TAE" and sorted(gap["harmonics"]) == [[1, 1], [2, 1]]
+    assert abs(gap["iota"] - iota_c) < 1e-9 and abs(gap["center_khz"] / f_c - 1) < 0.1
+    mode = out["mode"]
+    assert (
+        mode["in_gap"] and mode["converged"] and abs(mode["frequency_khz"] / gap["center_khz"] - 1) < gap["width_khz"] / gap["center_khz"]
+    )
+    assert (out["density_m3"], out["ion_mass_amu"]) == (n_i, 1.00727647)
+    png = fax.plot_summary(out, tmp_path / "summary.png")
+    assert png.stat().st_size > 5000
+
+
+def test_summary_without_gap_in_window(tmp_path):
+    """An empty window gives no gaps and no mode, and the figure says so."""
+    s = (jnp.arange(20) + 0.5) / 20
+    geo = fax.circular_torus(s=s, iota=0.5 + 0.35 * s, epsilon_B=0.3)
+    out = fax.summary(geo, fax.mode_family(1, 2, 1), 2e19, window=(1e6, 2e6), ntheta=16, nzeta=4)
+    assert out["gaps"] == [] and out["mode"] is None
+    assert fax.plot_summary(out, tmp_path / "none.png").exists()
