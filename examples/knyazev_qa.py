@@ -8,19 +8,14 @@ Needs matplotlib. Fast path about 2 minutes from the fixture (24 and 40 harmonic
 eight resolutions of docs/validation.md (about 15 minutes and 8 GB) and, if ARCHIVE is set, first rebuilds the fixture.
 """
 
-import io
 import sys
 from pathlib import Path
 
-import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 import knyazev_ref as kr  # noqa: E402
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 
 RESEARCH = False  # True: eight resolutions, the sine-sector continuum error and the subspace-containment table
 ARCHIVE = None  # path of Knyazev_JPP2026.zip: rebuild the fixture and print the SHA-256 values for tests/data/PROVENANCE.md (RESEARCH only)
@@ -104,8 +99,5 @@ ax[2].plot([k[1] for k in small], [100 * (rows[k]["rq"] / fx["band_khz"] - 1).me
 ax[2].set(xscale="log", xlabel="harmonics kept", ylabel="Rayleigh-quotient shift (%)", title="(c) energy of the AE3D modes in FAX")
 ax[2].axhline(0, color="k", lw=0.5)
 ax[2].legend(fontsize=7)
-buf = io.BytesIO()
-fig.savefig(buf, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-buf.seek(0)
-Image.open(buf).convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT).save(OUTPUT, optimize=True)
+fig.savefig(OUTPUT, dpi=110, bbox_inches="tight")
 print("wrote", OUTPUT)

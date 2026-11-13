@@ -3,21 +3,15 @@
 A frozen-mode, zero-orbit-width, passing-only growth rate against fast-ion temperature (theory section 8). The CAS3D-K (ZOW) points of
 fig. 1a are drawn for orientation only: whether that curve holds trapped particles is not stated, so the comparison is unmatched
 (docs/validation.md, ITPA ladder rung 2). The pooled ZLR band is not a reference. Covers FastIons (Maxwellian and slowing-down),
-growth_rate (also resolved=True) and ion_landau_damping on circular_torus geometry. Needs matplotlib (pip install "alfvex[plot]").
-Writes koenies_tae_drive.png; fast path about 10 s, RESEARCH adds the slowing-down distribution, the resonance table and the damping.
+growth_rate (also resolved=True) and ion_landau_damping on circular_torus geometry. Needs the plot extra; writes
+koenies_tae_drive.png. Fast path about 10 s; RESEARCH adds the slowing-down distribution, the resonance table and the damping.
 """
 
-import io
-
 import jax.numpy as jnp
-import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 
 import fax
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 
 RESEARCH = False  # True: 19 temperatures, slowing-down ions, the resonance table, bulk-ion Landau damping
 OMEGA = 4.0e5  # rad/s, the model TAE
@@ -58,8 +52,5 @@ plt.axvspan(200, 500, color="0.92", label="perturbative validity doubtful above 
 plt.xlabel("T_f (keV)")
 plt.ylabel("gamma (10^3 / s)")
 plt.legend(fontsize=7)
-buf = io.BytesIO()
-plt.savefig(buf, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-buf.seek(0)
-Image.open(buf).convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT).save(OUTPUT, optimize=True)
+plt.savefig(OUTPUT, dpi=110, bbox_inches="tight")
 print("wrote", OUTPUT)

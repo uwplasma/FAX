@@ -66,8 +66,8 @@ These read files in the repository or need an extra; each is a plain script with
 | File | Needs | Shows |
 |---|---|---|
 | `examples/quickstart.py` | nothing | the quickstart above, plus gaps, a dense solve and the smooth objectives |
-| `examples/ctok_boozmn.py`, `ctok_continuum.toml`, `ctok_eigenmodes.toml` | `tests/data`, `plot` | CTOK from a `boozmn` file: the TOML cases, the Python API and `fax run <case> --plot` |
-| `examples/qa_vmex.py`, `qa_continuum.toml` | `vmex`, `plot` | VMEC solve, Boozer transform, continuum and the gradient with respect to boundary coefficients |
+| `examples/ctok_boozmn.py`, `ctok_continuum.toml`, `ctok_eigenmodes.toml` | `tests/data` | CTOK from a `boozmn` file: the TOML cases, the Python API and `fax run <case> --plot` |
+| `examples/qa_vmex.py`, `qa_continuum.toml` | `vmex` | VMEC solve, Boozer transform, continuum and the gradient with respect to boundary coefficients |
 | `examples/koenies_tae_drive.py` | `plot` | fast-ion drive against temperature, slowing-down ions and Landau damping |
 | `examples/optimize_alfven.py` | `vmex`, `plot` | QS plus Paul's continuum cost (QH) or a classified gap-mode window (QA) |
 | `examples/knyazev_qa.py` | `tests/data`, `plot` | the STELLGAP and AE3D comparison; `RESEARCH` and an archive rebuild the fixture |

@@ -1,27 +1,20 @@
-"""Precise QA from a VMEC input: continuum, global frequencies and their gradient with respect to the plasma boundary.
+"""Precise QA from a VMEC input: global frequencies and their gradient with respect to the plasma boundary.
 
 Reproduces the low-resolution precise-QA configuration of Landreman and Paul, Phys. Rev. Lett. 128, 035001 (2022): VMEX solves the
-input, booz_xform_jax transforms it, FAX returns the continuum and global modes, and the implicit VMEX adjoint differentiates a
+input, booz_xform_jax transforms it, FAX returns the global modes, and the implicit VMEX adjoint differentiates a
 smooth frequency-window objective (docs/theory.md, "gradients through the equilibrium"). The same case as examples/qa_continuum.toml.
-Covers prepare_design, design_params, design_state, state_geometry, design_geometry, design_frequencies, geometry_frequencies,
-window_risk and, in RESEARCH, from_vmec_input, from_wout and the TOML run. Needs the vmex and plot extras (Python 3.11 or newer).
-Writes qa_vmex.png; fast path a few minutes (it compiles the equilibrium adjoint), RESEARCH adds the checks against the TOML route.
+Needs the vmex extra (Python 3.11 or newer); prints only. Fast path a few minutes (it compiles the equilibrium adjoint); RESEARCH
+adds the n = 1 gap modes and the checks of from_vmec_input, from_wout and the TOML run.
 """
 
-import io
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
-import matplotlib
 import numpy as np
 import vmex
-from PIL import Image
 
 import fax
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 
 RESEARCH = False  # True: the n = 1 gap modes, a 5-point line scan and the cross-check against from_vmec_input, from_wout and the TOML case
 DECK = Path(__file__).resolve().parent / "data" / "input.LandremanPaul2021_QA_lowres"  # VMEC input
@@ -36,7 +29,6 @@ if RESEARCH:
 else:
     HARMONICS, MODES, TARGET = [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]], 3, {}
 STEPS = np.array([-2, -1, 0, 1, 2] if RESEARCH else [-1, 0, 1]) * 1e-3  # offsets along -grad of the line scan
-OUTPUT = "qa_vmex.png"  # figure file
 
 design = fax.prepare_design(
     DECK, harmonics=HARMONICS, density=DENSITY, parameters=PARAMETERS, ns=NS, nodes=NODES, mboz=MBOZ, nboz=NBOZ, ntheta=8, nzeta=8, **TARGET
@@ -68,19 +60,3 @@ if RESEARCH:
     toml = fax.run(Path(__file__).resolve().parent / "qa_continuum.toml", save=False)
     print(f"from_vmec_input vs from_wout: iota differs by {float(jnp.max(jnp.abs(direct.iota - in_memory.iota))):.1e}")
     print(f"TOML run: {toml['frequencies_hz'].shape} frequencies, lowest {toml['frequencies_hz'].min() / 1e3:.1f} kHz")
-
-harmonics_n0 = fax.mode_family((0, 2, -2), 6)
-f_hz = np.asarray(fax.continuum(geo, harmonics_n0, DENSITY, 16, 32)) / 1e3  # continuum on the design geometry
-fig, ax = plt.subplots(1, 2, figsize=(7.5, 3.2), constrained_layout=True)
-ax[0].plot(np.repeat(np.asarray(geo.s), f_hz.shape[1]), f_hz.ravel(), ".", ms=2, color="0.3")
-ax[0].axhspan(WINDOW_HZ[0] / 1e3, WINDOW_HZ[1] / 1e3, color="C3", alpha=0.2)
-for fk in np.asarray(f) / 1e3:
-    ax[0].axhline(fk, color="C3", lw=0.8)
-ax[0].set(xlabel="s", ylabel="frequency (kHz)", ylim=(0, 600), title="precise QA, n = 0, 2, -2 continuum")
-ax[1].plot(STEPS * 1e3, scan, "o-")
-ax[1].set(xlabel="step along -grad (1e-3)", ylabel="window risk", title=f"|grad| = {float(jnp.linalg.norm(grad)):.2f}")
-buf = io.BytesIO()
-fig.savefig(buf, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-buf.seek(0)
-Image.open(buf).convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT).save(OUTPUT, optimize=True)
-print("wrote", OUTPUT)

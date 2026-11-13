@@ -1,8 +1,7 @@
 """Helpers for the precise-QA comparison with Knyazev et al. (2026): fixture reader and builder, FAX and AE3D mode comparison.
 
 Data: DOI 10.5281/zenodo.21299907 (version 10.5281/zenodo.21299908), ``Knyazev_JPP2026.zip``, CC-BY-4.0, 1.13 GB; the archive is
-data, read with ``zipfile`` and parsed as text. ``build`` reduces it to ``tests/data/knyazev_qa.npz``. The tests and
-``examples/knyazev_qa.py`` import this module.
+data, read with ``zipfile`` and parsed as text. ``build`` reduces it to ``tests/data/knyazev_qa.npz``.
 
 Reference run: precise QA (``nfp = 2``, aspect 6, finite-beta equilibrium), STELLGAP continuum and AE3D with its kink term
 removed, a flat mass density of 1.88e-6 kg/m^3 (the decks are not in the archive; the value is the one that reproduces the
@@ -199,21 +198,20 @@ def contained(small, ref, fx):
     return np.linalg.svd(ref.y[ref.band].reshape(ref.band.sum(), -1).conj() @ ref.G @ Q, compute_uv=False)
 
 
-def _sha(data):
-    return hashlib.sha256(data).hexdigest()
+def _sha(f):
+    """SHA-256 of a binary file object, read in 16 MB chunks."""
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: f.read(1 << 24), b""):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build(archive, out=FIXTURE):
     """Reduce the archive to ``out`` (about 0.6 MB); returns the SHA-256 of the archive and of the members read."""
-    sha = {}
-    with zipfile.ZipFile(archive) as z:
-        digest = hashlib.sha256()
-        with open(archive, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 24), b""):
-                digest.update(chunk)
-        sha["Knyazev_JPP2026.zip"] = digest.hexdigest()
+    with zipfile.ZipFile(archive) as z, open(archive, "rb") as f:
+        sha = {"Knyazev_JPP2026.zip": _sha(f)}
         raw = z.read(BOOZ)
-        sha[BOOZ] = _sha(raw)
+        sha[BOOZ] = hashlib.sha256(raw).hexdigest()
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "boozmn.nc").write_bytes(raw)
             geo = fax.read_boozmn(Path(tmp) / "boozmn.nc")
@@ -224,21 +222,15 @@ def build(archive, out=FIXTURE):
         fx = {f"g_{k}": a[:, keep].astype(np.float32) for k, a in arrays.items()}
         fx |= {"g_s": np.asarray(geo.s), "g_xm": np.asarray(geo.xm)[keep], "g_xn": np.asarray(geo.xn)[keep]}
         fx |= {f"g_{k}": np.asarray(getattr(geo, k)) for k in ("iota", "G", "I")} | {"g_nfp": np.asarray(geo.nfp)}
-        rows = []
-        for i in range(4):
-            raw = z.read(QA + f"stellgap/alfven_spec{i}")
-            sha[QA + f"stellgap/alfven_spec{i}"] = _sha(raw)
-            rows.append(np.loadtxt(raw.decode().splitlines()))
-        rows = np.vstack(rows)
+        raws = {QA + f"stellgap/alfven_spec{i}": z.read(QA + f"stellgap/alfven_spec{i}") for i in range(4)}
+        sha |= {k: hashlib.sha256(v).hexdigest() for k, v in raws.items()}
+        rows = np.vstack([np.loadtxt(v.decode().splitlines()) for v in raws.values()])
         labels = np.unique(rows[:, 0])
         sg = np.array([np.sort(np.sqrt(rows[rows[:, 0] == x, 1] / rows[rows[:, 0] == x, 3])) for x in labels])
         fx |= {"sg_s": labels[::SG_STRIDE], "sg_khz": sg[::SG_STRIDE].astype(np.float32)}
         member = QA + "ae3d/egn_mode_asci.dat"
-        digest = hashlib.sha256()
         with z.open(member) as f:
-            for chunk in iter(lambda: f.read(1 << 24), b""):
-                digest.update(chunk)
-        sha[member] = digest.hexdigest()
+            sha[member] = _sha(f)
         with z.open(member) as f:
             n, h, ns = (int(f.readline()) for _ in range(3))
             mn = np.array([[int(f.readline()), int(f.readline())] for _ in range(h)])

@@ -10,31 +10,27 @@
   and the fast-ion growth-rate objective: geometry_growth_rates and drive_risk, 150 keV Maxwellian deuterons).
 
 Needs the vmex and plot extras (Python 3.11 or newer). Writes optimize_alfven_<run>.png. The fast path is the QA gap-mode run with
-3 evaluations (about 5 min of CPU, not converged); RESEARCH runs all four cases with 16 evaluations (about 8 min each).
+3 evaluations on a 12 x 12 angle grid (about 2 min, not converged); RESEARCH adds the other three cases and runs every case with 16
+evaluations on a 16 x 16 grid (about 8 min each).
 """
 
 # ruff: noqa: B023  (the closures below run within the loop pass that defines them)
-import io
 import time
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
-import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 from scipy.optimize import least_squares
 from vmex.core import implicit
 from vmex.core.optimize import QuasisymmetryRatioResidual
 
 import fax
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-
-RESEARCH = False  # True: converged runs, the QH case and two more QA objectives (continuum minima, fast-ion drive)
+RESEARCH = False  # True: 16 evaluations on a finer angle grid, the QH case and two more QA objectives (continuum minima, fast-ion drive)
 RUNS = [("qa", "gap", False)] + [("qh", "gap", False), ("qa", "continuum", False), ("qa", "gap", True)] * RESEARCH  # case, modes, drive
-NS, NODES, NFEV = 16, 24, (16 if RESEARCH else 3)  # VMEC surfaces, FE nodes, least-squares evaluations
+NS, NODES, GRID, NFEV = (16, 24, 16, 16) if RESEARCH else (16, 24, 12, 3)  # VMEC surfaces, FE nodes, angle grid, least-squares evaluations
 OUT = Path(".")  # figure folder
 
 DATA = Path(__file__).resolve().parent / "data"
@@ -56,10 +52,10 @@ CASES = {
     ),
 }
 MODES = {  # QA global modes: the n = 1 gap modes (102-104 kHz in the 96-142 kHz gap) or the n = 0 continuum minima
-    "gap": dict(harmonics=fax.mode_family((1, -1, 3), 5), ntheta=16, nzeta=16, target_hz=103e3, count=2),
+    "gap": dict(harmonics=fax.mode_family((1, -1, 3), 5), ntheta=GRID, nzeta=GRID, target_hz=103e3, count=2),
     "continuum": dict(harmonics=fax.mode_family(0, 3, 1), ntheta=8, nzeta=8),
 }
-DRIVE_MODES = dict(harmonics=fax.mode_family((1, -1, 3), 5), ntheta=16, nzeta=16, target_hz=104e3, count=4)  # four n = 1 modes
+DRIVE_MODES = dict(harmonics=fax.mode_family((1, -1, 3), 5), ntheta=GRID, nzeta=GRID, target_hz=104e3, count=4)  # four n = 1 modes
 DENSITY = {"qh": fax.mass_density(1e20), "qa": 3.4e-8}  # QA: a few hundred kHz on the 1 m device
 FAST_ION = dict(temperature_ev=150e3, density_m3=1e15)  # drive run: Maxwellian deuterons, n_f = 1e15 (1 - s)^2 m^-3
 
@@ -71,8 +67,8 @@ def classify_report(design, p0, p1, f0, f1):
         print(f"  {label} modes: f (kHz), peak s, shift, overlap, margin, localization, isolated")
         for row in zip(*r, strict=True):
             print(f"    {row[0] / 1e3:8.3f} {row[1]:6.3f} {row[2]:9.1e} {row[3]:6.3f} {row[4]:6.3f} {row[5]:6.2f}  {bool(row[6])}")
-    jac = jax.jacrev(lambda q: fax.design_frequencies(q, design, len(f0))[0])(p0)
-    predicted, actual = np.asarray(jac @ (p1 - p0)), np.asarray(f1) - np.asarray(f0)
+    _, vjp = jax.vjp(lambda q: fax.design_frequencies(q, design, len(f0))[0], p0)
+    predicted, actual = np.stack([vjp(e)[0] for e in jnp.eye(len(f0))]) @ np.asarray(p1 - p0), np.asarray(f1) - np.asarray(f0)
     print(f"  first order: J dp = {np.round(predicted / 1e3, 4)} kHz, re-solved df = {np.round(actual / 1e3, 4)} kHz")
 
 
@@ -225,11 +221,6 @@ for case, modes_kind, drive in RUNS:
         axes[3].bar(["initial", "optimized"], [min(t0["freq"]) / 1e3, min(t1["freq"]) / 1e3], color="0.5")
         axes[3].axhspan(window[0] / 1e3, window[1] / 1e3, color="C3", alpha=0.2)
         axes[3].set(ylim=(window[0] / 1e3 - 6, window[1] / 1e3), ylabel="lowest global mode (kHz)", title="mode vs window")
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+    fig.savefig(OUT / f"optimize_alfven_{name}.png", dpi=100, bbox_inches="tight")
     plt.close(fig)
-    buf.seek(0)
-    Image.open(buf).convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT).save(
-        OUT / f"optimize_alfven_{name}.png", optimize=True
-    )
     print(f"  wrote optimize_alfven_{name}.png in {time.perf_counter() - start:.0f} s")

@@ -1,7 +1,6 @@
 """Equal-accuracy timings of the FAX eigensolvers on one assembled pencil ``F y = lam G y``.
 
-Not a literature reproduction: the timings quoted in ``docs/validation.md``. Run it on a quiet machine (each job waits up to
-``WAIT_MAX`` seconds for a 1-minute load below ``LOAD_MAX``; the loads are reported) after editing the settings below.
+Run on a quiet machine (each job waits up to ``WAIT_MAX`` seconds for a 1-minute load below ``LOAD_MAX``; the loads are reported).
 The fast path times CTOK and the Koenies torus at N = 200 (a few minutes); RESEARCH adds N = 400, the Knyazev QA fixture and the
 scaling sweeps. Methods:
 
@@ -53,7 +52,6 @@ import resource  # noqa: E402
 import statistics  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
-import tempfile  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -185,8 +183,8 @@ def show(head, rows):
         print("  ".join(c.rjust(max(len(x[i]) for x in cells)) if i else c.ljust(max(len(x[0]) for x in cells)) for i, c in enumerate(row)))
 
 
-if "FAX_BENCH_JOB" in os.environ:  # a worker: measure one job, hand the result back through a file and stop
-    Path(os.environ["FAX_BENCH_OUT"]).write_bytes(pickle.dumps(work(json.loads(os.environ["FAX_BENCH_JOB"]))))
+if len(sys.argv) > 1:  # a worker: measure one job, write the pickled result to stdout and stop
+    sys.stdout.buffer.write(pickle.dumps(work(json.loads(sys.argv[1]))))
     sys.exit()
 
 loads = []
@@ -195,14 +193,8 @@ loads = []
 def run(case, method):
     """Measure one (case, method) in a fresh process of this script, which keeps cold compiles and peak memory separate."""
     loads.append(wait())
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "result.pkl"
-        subprocess.run(
-            [sys.executable, __file__],
-            env={**os.environ, "FAX_BENCH_JOB": json.dumps([*case, method]), "FAX_BENCH_OUT": str(out)},
-            check=True,
-        )
-        return {**pickle.loads(out.read_bytes()), "load": loads[-1]}
+    out = subprocess.run([sys.executable, __file__, json.dumps([*case, method])], stdout=subprocess.PIPE, check=True).stdout
+    return {**pickle.loads(out), "load": loads[-1]}
 
 
 print(

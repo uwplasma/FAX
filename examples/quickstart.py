@@ -1,13 +1,9 @@
-"""Analytic-geometry tour: continuum, gaps, targeted and dense global modes, smooth objectives and a gradient.
+"""Analytic-geometry tour: continuum, gaps, targeted and dense global modes, smooth objectives and a gradient. No data, no plotting.
 
-Reproduces the TAE of the ITPA benchmark torus of Koenies et al., Nucl. Fusion 58, 126027 (2018): R0 = 10 m, a = 1 m, B0 = 3 T,
-q = 1.71 + 0.16 s, hydrogen at 2e19 m^-3, n = 6, m = 5..16. The global TAE is 4.06e5 rad/s here (CAS3D 4.01e5, GYGLES 4.13e5).
-Covers circular_torus, mode_family, mass_density, continuum, continuum_matrices, eigenvalue_mean, gaps, gap_location, surface_grid,
-global_matrices, eigenmodes (targeted and dense), frequency_hz, gap_closure, soft_max, window_risk and jax.grad.
-Needs no data. Writes quickstart.png when matplotlib is installed. Fast path about 15 s; RESEARCH adds a dense cross-check and more nodes.
+The ITPA TAE torus of Koenies et al., Nucl. Fusion 58, 126027 (2018): R0 = 10 m, a = 1 m, B0 = 3 T, q = 1.71 + 0.16 s, hydrogen at
+2e19 m^-3, n = 6, m = 5..16; the global TAE is 4.06e5 rad/s here (CAS3D 4.01e5, GYGLES 4.13e5). Fast path about 15 s; RESEARCH adds
+the dense all-mode solve as a cross-check and doubles the nodes.
 """
-
-import io
 
 import jax
 import jax.numpy as jnp
@@ -15,13 +11,12 @@ import numpy as np
 
 import fax
 
-RESEARCH = False  # True: 400 nodes, the dense all-mode solve as a cross-check, a convergence scan in the angle grid
+RESEARCH = False  # True: 400 nodes and the dense all-mode solve as a cross-check
 N_SURFACES = 400 if RESEARCH else 200  # radial surfaces (finite-element nodes)
 N_TOROIDAL, M_MIN, M_MAX = 6, 5, 16  # toroidal mode number and the poloidal range
 TARGET_HZ, N_MODES = 6.46e4, 3  # shift-invert target and number of modes kept; the TAE is the highest of the three
 DENSITY_M3, ION_MASS_AMU = 2e19, 1.00727647  # a proton plasma
 GRID = dict(ntheta=32, nzeta=4)  # angle grid of the global operator (nzeta = 4 is exact for the axisymmetric torus)
-OUTPUT = "quickstart.png"  # figure file; skipped without matplotlib
 
 s = (jnp.arange(N_SURFACES) + 0.5) / N_SURFACES
 geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
@@ -62,32 +57,3 @@ if RESEARCH:
     print(
         f"dense solve agrees with the targeted one to {float(jnp.max(jnp.abs(near / modes.frequencies_hz - 1))):.1e}; status {dense.status}"
     )
-    for ntheta in (16, 32, 64):
-        g = fax.eigenmodes(geo, harmonics, rho, target_hz=TARGET_HZ, count=N_MODES, ntheta=ntheta, nzeta=4)
-        print(f"ntheta {ntheta}: TAE {float(g.frequencies_hz[-1]) / 1e3:.4f} kHz")
-
-try:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from PIL import Image
-except ImportError:
-    print("matplotlib not installed: no figure")
-else:
-    fig, ax = plt.subplots(1, 2, figsize=(7.5, 3.2), constrained_layout=True)
-    ax[0].plot(np.repeat(np.asarray(s), f_hz.shape[1]), np.asarray(f_hz).ravel() / 1e3, ".", ms=1, color="0.3")
-    ax[0].axhspan(below / 1e3, above / 1e3, xmin=0.2, xmax=0.3, color="C1", alpha=0.4)
-    for fk in modes.frequencies_hz:
-        ax[0].axhline(fk / 1e3, color="C3", lw=0.8)
-    ax[0].set(xlabel="s", ylabel="frequency (kHz)", ylim=(0, 150), title="continuum and global modes")
-    tae_structure = np.abs(np.asarray(modes.structures[-1]))  # (nodes, harmonics)
-    for k in np.argsort(-tae_structure.max(0))[:3]:
-        ax[1].plot(np.asarray(s), tae_structure[:, k] / tae_structure.max(), lw=1.2, label=f"m = {int(harmonics[k, 0])}")
-    ax[1].set(xlabel="s", title=f"TAE structure, {modes.frequencies_hz[-1] / 1e3:.1f} kHz", ylabel="|phi| (arb.)")
-    ax[1].legend(fontsize=7)
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-    buf.seek(0)
-    Image.open(buf).convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT).save(OUTPUT, optimize=True)
-    print("wrote", OUTPUT)
