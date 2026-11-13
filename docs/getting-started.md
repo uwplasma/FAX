@@ -28,7 +28,7 @@ operators are stiff, and their eigenvalues are not reliable in float32.
 
 ## Quickstart
 
-The quickstart needs no data file, no checkout and no plotting: it runs from an installed wheel on the analytic Könies et al.
+The quickstart needs no data file and no checkout (it draws a figure only if matplotlib is installed): it runs from an installed wheel on the analytic Könies et al.
 (2018) ITPA torus ({func}`fax.circular_torus`). Settings sit at the top; edit and rerun.
 
 ```{literalinclude} ../examples/quickstart.py

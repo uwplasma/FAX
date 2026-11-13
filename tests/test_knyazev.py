@@ -1,20 +1,16 @@
 """Independent 3-D reference: the precise-QA STELLGAP continuum and AE3D gap band of Knyazev et al. (2026).
 
-The offline fixture and its provenance are in ``tests/data`` (``PROVENANCE.md``); ``examples/knyazev_qa.py`` rebuilds it
-and holds the comparison helpers. Tolerances are the convergence budgets of ``docs/validation.md``.
+The offline fixture and its provenance are in ``tests/data`` (``PROVENANCE.md``); ``tests/knyazev_ref.py`` rebuilds it
+and holds the comparison helpers (``examples/knyazev_qa.py`` uses them). Tolerances are the convergence budgets of ``docs/validation.md``.
 """
 
-import importlib.util
 from pathlib import Path
 
+import knyazev_ref as kq
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("knyazev_qa", ROOT / "examples" / "knyazev_qa.py")
-kq = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(kq)
-FIXTURE = ROOT / "tests" / "data" / "knyazev_qa.npz"
+FIXTURE = Path(__file__).parent / "data" / "knyazev_qa.npz"
 
 
 @pytest.fixture(scope="module")

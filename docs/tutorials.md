@@ -1,33 +1,37 @@
 # Tutorials
 
 The scripts in `examples/` walk from an analytic continuum to boundary gradients and a fast-ion drive, in the order the physics builds up
-in {doc}`theory`. Each has editable settings at the top and no command-line parsing. Run them from the repository root. Every section
-below says what it teaches, the command, the output to expect and the run time; the times are one laptop CPU core and include JAX
-compilation. Examples that draw figures need the plot extra (`pip install ".[plot]"`); the VMEC ones need the vmex extra
+in {doc}`theory`. Each is a plain script with its settings at the top as commented constants and no command-line parsing. Run them from
+the repository root. `RESEARCH = False` is the fast default; `RESEARCH = True` selects the finer resolution and the extra analysis
+(the scripts name what changes in their docstrings), so one file serves both. Every section below says what it teaches, the
+command, the output to expect and the run time; the times are one laptop CPU core and include JAX compilation. Examples that draw figures need the plot extra (`pip install ".[plot]"`); the VMEC ones need the vmex extra
 (`pip install ".[vmex]"`, Python 3.11 or newer). The two commands `fax run` and `fax plot` are the package command line and run the
 continuum and global-mode tasks only ({doc}`getting-started`).
 
 | Example | Needs | Section |
 |---|---|---|
 | `examples/quickstart.py` | nothing | 1 |
-| `examples/ctok_continuum.toml`, `examples/ctok_eigenmodes.toml` | checkout (`tests/data`) | 2, 3 |
-| `examples/qa_continuum.toml` | `vmex` | 4 |
-| `examples/boundary_gradient.py` | `vmex` | 5 |
+| `examples/ctok_boozmn.py`, `ctok_continuum.toml`, `ctok_eigenmodes.toml` | checkout (`tests/data`), `plot` | 2, 3 |
+| `examples/qa_vmex.py`, `examples/qa_continuum.toml` | `vmex`, `plot` | 4, 5 |
 | `examples/koenies_tae_drive.py` | `plot` | 6 |
 | `examples/optimize_alfven.py` | `vmex`, `plot` | 7 |
-| `examples/knyazev_qa.py` | Zenodo archive (1.1 GB) | 8 |
+| `examples/knyazev_qa.py` | checkout (`tests/data`), `plot`; Zenodo archive (1.1 GB) only to rebuild the fixture | 8 |
 | `examples/benchmark.py` | checkout; timings, see {doc}`validation` | |
 
 ## 1. A continuum, a global mode and a gradient on analytic geometry
 
 You will learn the three basic calls: continuum, targeted eigenmode, derivative. Command: `python examples/quickstart.py` (about 15 s;
 it needs no data and is also listed in {doc}`getting-started`). It prints the continuum summary, the TAE frequency and the solver `Status`. The script builds the Könies et al. (2018) ITPA torus,
-computes its continuum, finds the TAE (4.0610e5 rad/s) by shift-invert with its solver `Status`, and differentiates the TAE
-frequency with respect to the mass density.
+computes its continuum and its gaps ({func}`fax.gaps`, {func}`fax.gap_location`), finds the TAE (4.0610e5 rad/s) by shift-invert with its solver `Status`,
+differentiates the TAE frequency with respect to the mass density, and evaluates the smooth objectives {func}`fax.gap_closure`,
+{func}`fax.soft_max` and {func}`fax.window_risk`. With `RESEARCH = True` it also solves every mode densely and checks the angle-grid
+convergence. It draws `quickstart.png` if matplotlib is installed.
 
 ## 2. A continuum from a `boozmn` file
 
-You will learn how to read a continuum from a `boozmn` file and what the gaps in it mean (sections 2 and 3 of {doc}`theory`). The input
+You will learn how to read a continuum from a `boozmn` file and what the gaps in it mean (sections 2 and 3 of {doc}`theory`).
+`examples/ctok_boozmn.py` runs both CTOK cases below through `fax.run`, repeats them with the Python API (the two agree exactly) and draws
+`ctok_boozmn.png`; `RESEARCH = True` adds the dense solve, the file's full mesh and the command line. The input
 `examples/ctok_continuum.toml` is the STELLGAP CTOK test problem: a circular tokamak, `n = 2`, `m = 0..12`, deuterium at
 10¹⁹ m⁻³.
 
@@ -100,39 +104,44 @@ fax run examples/qa_continuum.toml --plot        # about 1 min
 
 `iota` falls from 0.422 to 0.417 across these surfaces. In Python the geometry step is
 `fax.from_vmec_input(path, ns=16, mboz=8, nboz=8, surfaces=...)`; `fax.from_wout` does the same from a `wout` file or in-memory wout.
+`examples/qa_vmex.py` (next section) builds the same geometry through {func}`fax.prepare_design`; with `RESEARCH = True` it also runs
+this TOML case, `from_vmec_input` and `from_wout` and compares them.
 
 ## 5. A gradient with respect to the plasma boundary
 
-You will learn how to differentiate a spectral objective with respect to the plasma boundary ({ref}`vmex-gradients`). Command: `python examples/boundary_gradient.py`, a few minutes. The script differentiates a smooth frequency-window objective, {func}`fax.window_risk`, of the three lowest
+You will learn how to differentiate a spectral objective with respect to the plasma boundary ({ref}`vmex-gradients`). Command: `python examples/qa_vmex.py`, a few minutes (it also draws `qa_vmex.png`). The script differentiates a smooth frequency-window objective, {func}`fax.window_risk`, of the three lowest
 global frequencies of precise QA with respect to the boundary coefficients `rc01` (`RBC(n=1, m=0)`) and `zs01` (`ZBS(n=1, m=0)`).
 
-```{literalinclude} ../examples/boundary_gradient.py
+```{literalinclude} ../examples/qa_vmex.py
 :language: python
+:start-at: PARAMETERS =
+:end-before: state, runtime
 ```
 
 ```text
-frequencies (kHz): [294.37821076 294.71453201 295.2077278 ]
-risk = 7.1758e-02, d risk / d ('rc01', 'zs01') = [-0.62269764  0.54587794]
-risk after a 1e-3 step along -grad: 7.0927e-02
+('rc01', 'zs01'): frequencies (kHz) [294.113 294.444 294.922], converged True
+risk = 7.4159e-02, d risk / d ('rc01', 'zs01') = [-0.58194804  0.57585933]
+risk along -grad (offsets [-0.001  0.     0.001] ): [0.07497 0.07416 0.07334]
 ```
 
 {func}`fax.prepare_design` builds the static part (VMEX configuration, Boozer tables, FE nodes) once;
 {func}`fax.design_frequencies` is then a traceable function of the boundary offsets, differentiated through the VMEX implicit
 equilibrium ({ref}`vmex-gradients`) and first order only. It returns the solver `Status`, and the frequencies and their tangents are
 NaN unless the solve converged. The run takes a few minutes on a CPU (it compiles the equilibrium adjoint). This is a tiny model
-(three harmonics, 8 × 8 angles, 24 radial nodes), and its $n = 0$ modes are the continuum-like ones of section 7, so it demonstrates the
+(three harmonics, 8 × 8 angles, 24 radial nodes, `mboz = nboz = 8`), and its $n = 0$ modes are the continuum-like ones of section 7, so it demonstrates the
 gradient chain, not a gap-mode objective; {doc}`validation` lists what the gradient is checked against and the open $m = 1$ gauge floor.
 
 ## 6. Fast-ion drive of the Könies ITPA TAE
 
-You will learn how to compute a perturbative growth rate and how it scales with fast-ion temperature (theory section 8). The script `examples/koenies_tae_drive.py` (needs the plot extra) evaluates the perturbative growth rate {func}`fax.growth_rate` of a model
+You will learn how to compute a perturbative growth rate and how it scales with fast-ion temperature (theory section 8). The script `examples/koenies_tae_drive.py` (needs the plot extra; `RESEARCH = True` adds slowing-down ions, the resonance table of `resolved=True` and {func}`fax.ion_landau_damping`) evaluates the perturbative growth rate {func}`fax.growth_rate` of a model
 TAE (harmonics `m = 10, 11`, `n = 6`, Gaussian radial envelope centred on `q = 1.75`, `ω = 4.0e5` rad/s) on the Boozer form of the
 ad hoc equilibrium ({func}`fax.circular_torus`), driven by the Maxwellian fast-ion profile of Könies et al. (2018), for
 temperatures from 50 to 500 keV.
 
 ```{literalinclude} ../examples/koenies_tae_drive.py
 :language: python
-:start-at: from pathlib
+:start-at: s = (jnp.arange(200)
+:end-before: for t in (100.0
 ```
 
 ```console
@@ -156,29 +165,31 @@ and 8% and 16% at 300 and 400 keV, where the frozen-mode picture fails ({doc}`va
 
 You will learn how the pieces combine into an optimization with an exact Jacobian. The script `examples/optimize_alfven.py` (needs the vmex and plot extras) runs `scipy.optimize.least_squares` on VMEC boundary coefficients
 with residual rows (aspect ratio, $\sqrt{f_{QS}}$, $\iota$ floor, Alfvén term), each scaled to about one at the start, and an exact
-Jacobian: one VMEX + FAX forward pass and one adjoint per row ({ref}`continuum-objective`). Edit the settings and run it:
+Jacobian: one VMEX + FAX forward pass and one adjoint per row ({ref}`continuum-objective`). The fast default runs the QA
+gap-mode case for three evaluations (not converged); `RESEARCH = True` runs 16 evaluations and adds the QH case and the two QA variants
+(the entries of `RUNS`):
 
 ```{literalinclude} ../examples/optimize_alfven.py
 :language: python
-:start-at: CASE =
+:start-at: RESEARCH =
 :end-at: OUT =
 ```
 
-- **QH** (`CASE = "qh"`; Paul et al. 2025, eq. 7.1): 34 coefficients with $m \le 3$, $|n| \le 2$; rows $10(A/A_0 - 1)$,
+- **QH** (`("qh", "gap", False)`; Paul et al. 2025, eq. 7.1): 34 coefficients with $m \le 3$, $|n| \le 2$; rows $10(A/A_0 - 1)$,
   $0.1\sqrt{f_{QS}/f_{QS,0}}$, $10\sqrt{f_{\iota}}$ with $|\iota| \ge 1.03$, and $\sqrt{f_\mathrm{cont}/f_{\mathrm{cont},0}}$. It lowers
   Paul's geometric proxy $f_\mathrm{cont}$ by 26% (and narrows the high-frequency gaps by up to 29%) at QS ×4.3; no independent
   spectrum or transport check has been made, so this is a proxy reduction.
-- **QA, gap modes** (`CASE = "qa"`, `MODES_KIND = "gap"`, about 8 min): two global modes pushed out of a window at fixed aspect ratio
+- **QA, gap modes** (`("qa", "gap", False)`, about 8 min at `NFEV = 16`): two global modes pushed out of a window at fixed aspect ratio
   and QS (24 FE nodes). It takes the two $n = 1$ modes nearest 103 kHz ($m = 0$–5, $n \in \{-1, 1, 3\}$), which
   {func}`fax.classify_modes` finds to be isolated gap modes in the 96–142 kHz gap (102.1 and 103.9 kHz); the window is
   $[f_\mathrm{min} - s, f_\mathrm{max} + 20 s]$ with $s$ = 0.34% of the mean frequency and the Alfvén row is
   $30\sqrt{\text{window\_risk}}$. The script prints the classification of the selected modes before and after, and the first-order
   prediction $J\,\delta p$ against the re-solved change: a 4 kHz shift predicted to 0.05 kHz, inside a resolution budget of 0.13 kHz.
-- **QA, continuum minima** (`MODES_KIND = "continuum"`): the three lowest $n = 0$ modes ($m = 1$–3), which the classifier finds to
+- **QA, continuum minima** (`("qa", "continuum", False)`, `RESEARCH`): the three lowest $n = 0$ modes ($m = 1$–3), which the classifier finds to
   be continuum-like: each sits on the continuum minimum at its own radius, so moving them moves the branch minimum
   ($\propto |\iota m - n|$), not a mode of the geometry. Kept only as a test of the gradient chain; the earlier reading of this run
   as "modes leave the window" was a statement about that branch.
-- **QA, drive** (`DRIVE = True`): the Alfvén row is $\text{drive\_risk}/\text{drive\_risk}_0$ of the growth rates of the four $n = 1$
+- **QA, drive** (`("qa", "gap", True)`, `RESEARCH`): the Alfvén row is $\text{drive\_risk}/\text{drive\_risk}_0$ of the growth rates of the four $n = 1$
   modes ($m = 0$–5, $n \in \{-1, 1, 3\}$) nearest 104 kHz, driven by 150 keV Maxwellian deuterons with
   $n_f = 10^{15}(1 - s)^2$ m⁻³ ({func}`fax.geometry_growth_rates`, {func}`fax.drive_risk`). The 4-coefficient run lowers
   $\gamma_\mathrm{max}$ by 4.4% (8500 to 8123 s⁻¹) at QS 1.1e-6 to 1.6e-6; that change is not bounded by an error budget, so it is
@@ -198,14 +209,16 @@ $f_\mathrm{cont}$ and the largest gaps above the cut, and writes the figures bel
 
 ## 8. The independent 3-D comparison (checkout and archive only)
 
-You will learn how FAX was compared with an independent 3-D code. The script `examples/knyazev_qa.py` rebuilds the offline fixture `tests/data/knyazev_qa.npz` from the Zenodo archive of Knyazev et al. (2026)
-(DOI 10.5281/zenodo.21299907, 1.1 GB, CC-BY-4.0; the archive is data and nothing in it is executed) and reproduces the precise-QA
-comparison of {doc}`validation` (about 15 minutes and 8 GB). Set the switches and the archive path at the top:
+You will learn how FAX was compared with an independent 3-D code. The script `examples/knyazev_qa.py` compares FAX with STELLGAP and AE3D on the offline fixture `tests/data/knyazev_qa.npz` of the
+Zenodo archive of Knyazev et al. (2026) (DOI 10.5281/zenodo.21299907, 1.1 GB, CC-BY-4.0; the archive is data and nothing in it is
+executed). The fast default takes about two minutes and compares the sine-basis modes at 24 and 40 harmonics; `RESEARCH = True`
+reproduces the precise-QA tables and figure of {doc}`validation` (eight resolutions, about 15 minutes and 8 GB) and, with `ARCHIVE`
+set to the downloaded zip, first rebuilds the fixture with the reader in `tests/knyazev_ref.py`:
 
 ```{literalinclude} ../examples/knyazev_qa.py
 :language: python
-:start-at: ARCHIVE =
-:end-at: REBUILD, STUDY
+:start-at: RESEARCH =
+:end-at: OUTPUT =
 ```
 
 The continuum agrees with STELLGAP (3.0e-3 mean). The AE3D global mode (30.31 kHz) is not a FAX eigenmode (best overlap 0.18; its energy

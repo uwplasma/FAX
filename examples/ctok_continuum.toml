@@ -1,4 +1,4 @@
-# STELLGAP CTOK test case: n = 2 continuum in a circular tokamak, deuterium at 1e19 m^-3.
+# STELLGAP CTOK test case: n = 2 continuum in a circular tokamak, deuterium at 1e19 m^-3. The same case through the Python API: examples/ctok_boozmn.py.
 [geometry]
 source = "boozmn"
 path = "../tests/data/boozmn_ctok.nc"

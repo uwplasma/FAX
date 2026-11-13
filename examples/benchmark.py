@@ -1,7 +1,9 @@
 """Equal-accuracy timings of the FAX eigensolvers on one assembled pencil ``F y = lam G y``.
 
-Run ``python examples/benchmark.py`` on a quiet machine (each job waits up to ``WAIT_MAX`` seconds for a 1-minute load below
-``LOAD_MAX``; the loads are reported); edit the settings below. Methods:
+Not a literature reproduction: the timings quoted in ``docs/validation.md``. Run it on a quiet machine (each job waits up to
+``WAIT_MAX`` seconds for a 1-minute load below ``LOAD_MAX``; the loads are reported) after editing the settings below.
+The fast path times CTOK and the Koenies torus at N = 200 (a few minutes); RESEARCH adds N = 400, the Knyazev QA fixture and the
+scaling sweeps. Methods:
 
 * ``targeted``: ``fax.eigenmodes(target_hz, count)``, SOLVAX shift-invert on the block-tridiagonal pencil;
 * ``dense-jax``: ``fax.eigenmodes()``, FAX's jitted dense generalized solve of all modes (Cholesky + ``eigh``);
@@ -19,21 +21,18 @@ still use several cores on this jaxlib. Speed-ups are printed only when both met
 
 import os
 
-THREADS, REPS, SLOW, TOL, LOAD_MAX, WAIT_MAX, DENSE_MAX, ITERS = (
-    1,
-    5,
-    30.0,
-    1e-10,
-    4.0,
-    120,
-    5000,
-    1000,
-)  # SLOW: seconds above which REPS falls to 2
+RESEARCH = False  # True: more cases, the Knyazev QA fixture and the scaling sweeps
+THREADS = 1  # BLAS/LAPACK and XLA threads
+REPS = 5 if RESEARCH else 3  # warm repetitions; the median is reported
+SLOW = 30.0  # seconds above which REPS falls to 2
+TOL = 1e-10  # eta (relative residual) a method must reach for a speed-up to be printed
+LOAD_MAX, WAIT_MAX = 4.0, 120  # wait up to WAIT_MAX seconds for a 1-minute load below LOAD_MAX before each job
+DENSE_MAX = 5000  # N * H above which the dense methods are skipped
+ITERS = 1000  # shift-invert iterations
 CASES = [  # (label, kind, N, H, requested modes); N = 0 takes the file's surfaces (CTOK) or the fixture's (49)
     ("CTOK n=2", "ctok", 0, 13, 6),
     ("Koenies N=200", "koenies", 200, 12, 3),
-    ("Koenies N=400", "koenies", 400, 12, 3),
-    ("Knyazev QA", "knyazev", 49, 64, 6),
+    *(("Koenies N=400", "koenies", 400, 12, 3), ("Knyazev QA", "knyazev", 49, 64, 6)) * RESEARCH,
 ]
 BASE = ("koenies", 200, 12, 3)  # scaling sweeps vary one of (N, H, modes) at a time from here
 SWEEPS = {"N": (200, 400, 800, 1600, 3200), "H": (12, 16, 24, 32, 48), "modes": (1, 3, 6, 12, 24)}  # N H > 2048: no dense fallback
@@ -47,12 +46,15 @@ os.environ.update(  # before numpy and jax load; spawned workers inherit them
     ),
 )
 
+import json  # noqa: E402
+import pickle  # noqa: E402
 import platform  # noqa: E402
 import resource  # noqa: E402
 import statistics  # noqa: E402
+import subprocess  # noqa: E402
 import sys  # noqa: E402
+import tempfile  # noqa: E402
 import time  # noqa: E402
-from multiprocessing import get_context  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import jax  # noqa: E402
@@ -78,10 +80,11 @@ def build(kind, N, H):
         s = (jnp.arange(N) + 0.5) / N
         geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
         return geo, fax.mode_family(6, 4 + H, 5), fax.mass_density(2e19, 1.00727647), 6.46e4, dict(ntheta=32 * -(-H // 12), nzeta=4)
-    from knyazev_qa import RHO, geometry, load  # examples/ is on sys.path
+    sys.path.insert(0, str(ROOT / "tests"))
+    import knyazev_ref as kr
 
-    fx = load()
-    return geometry(fx, N), jnp.asarray(fx["mn"][fx["order"][:H]], dtype=float), RHO, 30.3e3, dict(ntheta=64, nzeta=48)
+    fx = kr.load()
+    return kr.geometry(fx, N), jnp.asarray(fx["mn"][fx["order"][:H]], dtype=float), kr.RHO, 30.3e3, dict(ntheta=64, nzeta=48)
 
 
 def rss():
@@ -182,53 +185,61 @@ def show(head, rows):
         print("  ".join(c.rjust(max(len(x[i]) for x in cells)) if i else c.ljust(max(len(x[0]) for x in cells)) for i, c in enumerate(row)))
 
 
-if __name__ == "__main__":
-    pool, loads = get_context("spawn").Pool(1, maxtasksperchild=1), []
+if "FAX_BENCH_JOB" in os.environ:  # a worker: measure one job, hand the result back through a file and stop
+    Path(os.environ["FAX_BENCH_OUT"]).write_bytes(pickle.dumps(work(json.loads(os.environ["FAX_BENCH_JOB"]))))
+    sys.exit()
 
-    def run(case, method):
-        loads.append(wait())
-        return {**pool.apply(work, ((*case, method),)), "load": loads[-1]}
+loads = []
 
-    print(
-        f"fax {fax.__version__}, solvax {solvax.__version__}, jax {jax.__version__}, jaxlib {jaxlib.__version__}, "
-        f"numpy {np.__version__}, scipy {scipy.__version__}; python {platform.python_version()}, {platform.machine()} {platform.system()}"
-    )
-    print(
-        f"{jax.devices()[0].device_kind} ({jax.default_backend()}), {os.cpu_count()} cores, {THREADS} BLAS thread(s), float64, TOL {TOL:g}"
-    )
-    nan = np.nan
-    for label, *case in CASES:
-        res = {
-            m: run(case, m) for m in ("dense-scipy", "dense-jax", "targeted") if m == "targeted" or (case[1] or 100) * case[2] <= DENSE_MAX
-        }
-        ref, g0 = res.get("dense-scipy", res["dense-jax"]), res.get("dense-jax", {}).get("grad")
-        r0 = res["targeted"]
-        for r in res.values():
-            r["err"], r["gerr"] = np.max(np.abs(r["lam"] / ref["lam"] - 1)), gerr(r, g0)
-        print(f"\n{label}: N {r0['N']}, H {r0['H']}, {r0['count']} modes, angle grid {r0['grid']}, warm = median of {REPS} (fewer if slow)")
-        cols = {
-            "eta": lambda r: r["eta"],
-            "err": lambda r: r["err"],
-            "gerr": lambda r: r["gerr"],
-            "fwd cold": lambda r: r["cold"],
-            "fwd warm": lambda r: r["warm"],
-            "busy thr": lambda r: r["threads"],
-            "solve": lambda r: r.get("solve", nan),
-            "grad cold": lambda r: r.get("gcold", nan),
-            "grad warm": lambda r: r.get("gwarm", nan),
-            "RSS f/g MB": lambda r: f"{r['mem']:.0f}/{r.get('gmem', nan):.0f}",
-            "XLA MB": lambda r: r.get("temp", nan),
-            "iters": lambda r: r.get("iters", 0),
-            "load": lambda r: r["load"],
-        }
-        show(["method", *cols], [[m, *(f(r) for f in cols.values())] for m, r in res.items()])
-        if any(r["reps"] < REPS for r in res.values()):
-            print("warm forward reps: " + ", ".join(f"{m} {r['reps']}" for m, r in res.items()))
-        if "dense-jax" in res and max(res["dense-jax"]["eta"], r0["eta"]) <= TOL:
-            d = res["dense-jax"]
-            print(
-                f"targeted vs dense-jax at eta <= {TOL:g}: forward x{d['warm'] / r0['warm']:.1f}, gradient x{d['gwarm'] / r0['gwarm']:.1f}"
-            )
+
+def run(case, method):
+    """Measure one (case, method) in a fresh process of this script, which keeps cold compiles and peak memory separate."""
+    loads.append(wait())
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "result.pkl"
+        subprocess.run(
+            [sys.executable, __file__],
+            env={**os.environ, "FAX_BENCH_JOB": json.dumps([*case, method]), "FAX_BENCH_OUT": str(out)},
+            check=True,
+        )
+        return {**pickle.loads(out.read_bytes()), "load": loads[-1]}
+
+
+print(
+    f"fax {fax.__version__}, solvax {solvax.__version__}, jax {jax.__version__}, jaxlib {jaxlib.__version__}, "
+    f"numpy {np.__version__}, scipy {scipy.__version__}; python {platform.python_version()}, {platform.machine()} {platform.system()}"
+)
+print(f"{jax.devices()[0].device_kind} ({jax.default_backend()}), {os.cpu_count()} cores, {THREADS} BLAS thread(s), float64, TOL {TOL:g}")
+nan = np.nan
+for label, *case in CASES:
+    res = {m: run(case, m) for m in ("dense-scipy", "dense-jax", "targeted") if m == "targeted" or (case[1] or 100) * case[2] <= DENSE_MAX}
+    ref, g0 = res.get("dense-scipy", res["dense-jax"]), res.get("dense-jax", {}).get("grad")
+    r0 = res["targeted"]
+    for r in res.values():
+        r["err"], r["gerr"] = np.max(np.abs(r["lam"] / ref["lam"] - 1)), gerr(r, g0)
+    print(f"\n{label}: N {r0['N']}, H {r0['H']}, {r0['count']} modes, angle grid {r0['grid']}, warm = median of {REPS} (fewer if slow)")
+    cols = {
+        "eta": lambda r: r["eta"],
+        "err": lambda r: r["err"],
+        "gerr": lambda r: r["gerr"],
+        "fwd cold": lambda r: r["cold"],
+        "fwd warm": lambda r: r["warm"],
+        "busy thr": lambda r: r["threads"],
+        "solve": lambda r: r.get("solve", nan),
+        "grad cold": lambda r: r.get("gcold", nan),
+        "grad warm": lambda r: r.get("gwarm", nan),
+        "RSS f/g MB": lambda r: f"{r['mem']:.0f}/{r.get('gmem', nan):.0f}",
+        "XLA MB": lambda r: r.get("temp", nan),
+        "iters": lambda r: r.get("iters", 0),
+        "load": lambda r: r["load"],
+    }
+    show(["method", *cols], [[m, *(f(r) for f in cols.values())] for m, r in res.items()])
+    if any(r["reps"] < REPS for r in res.values()):
+        print("warm forward reps: " + ", ".join(f"{m} {r['reps']}" for m, r in res.items()))
+    if "dense-jax" in res and max(res["dense-jax"]["eta"], r0["eta"]) <= TOL:
+        d = res["dense-jax"]
+        print(f"targeted vs dense-jax at eta <= {TOL:g}: forward x{d['warm'] / r0['warm']:.1f}, gradient x{d['gwarm'] / r0['gwarm']:.1f}")
+if RESEARCH:
     print(f"\nscaling (targeted, from {BASE[0]} N={BASE[1]} H={BASE[2]} modes={BASE[3]}); factor, solve: SOLVAX on assembled blocks")
     cols = dict(N="N", H="H", modes="count", eta="eta", iters="iters", factor="factor", solve="solve")
     cols |= {"fwd warm": "warm", "grad warm": "gwarm", "factor MB": "fmb", "solve MB": "stemp", "RSS MB": "mem", "load": "load"}
@@ -243,5 +254,5 @@ if __name__ == "__main__":
         fits = {n: fit(ok, cols[n], names[k]) for n in ("factor", "solve", "fwd warm", "grad warm", "factor MB", "solve MB", "RSS MB")}
         print(f"observed exponent in {k} (eta <= TOL only): " + ", ".join(f"{n} {e:.2f}" for n, e in fits.items()))
     print("expected: factorization O(N H^3), factor storage O(N H^2); solve = factor + iterations x O(N H^2 (2 modes + 8))")
-    print(f"load before each run: min {min(loads):.1f}, median {np.median(loads):.1f}, max {max(loads):.1f}, {len(loads)} runs,")
-    print(f"{sum(x >= LOAD_MAX for x in loads)} not below {LOAD_MAX:g}; RSS is above a baseline of {r0['base']:.0f} MB")
+print(f"load before each run: min {min(loads):.1f}, median {np.median(loads):.1f}, max {max(loads):.1f}, {len(loads)} runs,")
+print(f"{sum(x >= LOAD_MAX for x in loads)} not below {LOAD_MAX:g}; RSS is above a baseline of {r0['base']:.0f} MB")

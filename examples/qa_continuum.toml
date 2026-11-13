@@ -1,4 +1,4 @@
-# Precise QA (Landreman & Paul 2022, low resolution): vmex solve -> booz_xform_jax -> continuum.
+# Precise QA (Landreman & Paul 2022, low resolution): vmex solve -> booz_xform_jax -> continuum. The same case through the Python API: examples/qa_vmex.py.
 [geometry]
 source = "vmec"
 path = "data/input.LandremanPaul2021_QA_lowres"

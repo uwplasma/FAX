@@ -90,7 +90,7 @@ there. Timings of the eigensolvers, at equal accuracy, are in the {ref}`performa
 (performance)=
 ### Performance at equal accuracy
 
-`python examples/benchmark.py` solves one assembled pencil $F y = \lambda G y$ three ways and checks every answer
+`examples/benchmark.py` (`RESEARCH = True` for the whole table) solves one assembled pencil $F y = \lambda G y$ three ways and checks every answer
 before comparing speed: `targeted` is `fax.eigenmodes(target_hz, count)` (SOLVAX shift-invert, `tol = 1e-10`),
 `dense-jax` is `fax.eigenmodes()` (FAX's jitted dense generalized solve of all $NH$ modes) and `dense-scipy` is
 `scipy.linalg.eigh(F, G)`, the reference. Each (case, method) runs in a fresh process: cold is compile plus first call,
@@ -332,7 +332,7 @@ analysis (no implementation change).
 The archive of Knyazev et al. (2026; Zenodo DOI 10.5281/zenodo.21299907, CC-BY-4.0) holds a precise-QA equilibrium
 (`nfp = 2`, aspect 6, finite-$\beta$ VMEC, `boozmn_betaQA.nc`), its STELLGAP continuum and its AE3D spectrum with the kink
 term removed. `tests/data/knyazev_qa.npz` (0.67 MB) reduces it; `tests/data/PROVENANCE.md` has hashes and switches, and
-`examples/knyazev_qa.py` rebuilds the fixture and reproduces every number below (15 min, 8 GB). FAX runs with
+`examples/knyazev_qa.py` with `RESEARCH = True` reproduces every number below (15 min, 8 GB; the helpers are in `tests/knyazev_ref.py`). FAX runs with
 `finite_beta=False`, a flat density of 1.88e-6 kg/m$^3$ (the decks are not in the archive; the value reproduces the
 continuum), AE3D's 49 nodes $s = 0.02..0.98$ and its 162 harmonics. AE3D's sine basis is FAX's operator on
 $(m, n), (-m, -n)$ restricted to the odd subspace.
@@ -532,8 +532,8 @@ widths) with QS still at the 4e-6 level; the shift comes mainly from
 $\iota$ (−0.8%), as $f \propto |\iota m - n|$ near the continuum minimum.
 
 **QA with classified gap modes (the 3-D boundary objective of work package E).** The two $n = 1$ modes
-($m = 0$–5, $n \in \{-1, 1, 3\}$, $16 \times 16$ angles) nearest 103 kHz, `python examples/optimize_alfven.py --case qa
---modes gap --nfev 8` (8 evaluations, 8 min on a CPU; 24 FE nodes), window $[f_\mathrm{min} - s, f_\mathrm{max} + 20 s]$,
+($m = 0$–5, $n \in \{-1, 1, 3\}$, $16 \times 16$ angles) nearest 103 kHz, `examples/optimize_alfven.py` with the `qa`, `gap`
+run and `NFEV = 8` (8 evaluations, 8 min on a CPU; 24 FE nodes), window $[f_\mathrm{min} - s, f_\mathrm{max} + 20 s]$,
 $s$ = 0.35 kHz. In the 96–142 kHz gap of the $n = 1$ continuum, `classify_modes` (24 and 49 nodes) finds both isolated:
 
 | mode | $f$ refined (kHz) | peak $s$ | shift | overlap | margin | isolated |
