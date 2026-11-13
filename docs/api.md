@@ -22,6 +22,7 @@ need `jax.grad(..., allow_int=True)`.
 | `surface_grid`, `jacobian_check` | every `Geometry` float leaf | jit, grad | diagnostics only; no status |
 | `continuum`, `continuum_matrices` | `Geometry` leaves, `density` | jit, grad, jvp, vjp, vmap | host `ValueError` for `rho <= 0`, `G + iota I = 0`, or an angle grid that aliases the harmonics (`ntheta > 2 max|dm|`) |
 | `mass_density`, `mode_family` | `n_ion` (`mass_density`; the mass is in atomic mass units) | jit, grad | `mode_family` is host-side: it builds the static `(m, n)` list |
+| `summary` | `geometry`, `mass_density` | host only, not differentiable | a gap is a band no branch crosses at any surface; `mode` is `None`, with `mode_reason`, unless a mode lies in the widest gap |
 | `gaps`, `gap_location` | `frequencies_hz` (`gaps`) | jit, grad | the widest gap switches branch where two gaps tie: a kink (use `gap_closure`) |
 | `global_matrices` | `Geometry` leaves, `density` | jit, grad, jvp | host `ValueError` for `density <= 0`, surfaces outside the open interval (0, 1) or a repeated `(m, n)` harmonic; `finite_beta` is restricted and experimental |
 | `eigenmodes`, targeted | `Geometry` leaves, `density`: `omega2`, `structures` | jit, jvp, vjp | **first order only.** `status` (`Status`: `residual`, `orthogonality`, `iterations`, `converged`, `gap`, `fallback`) is returned, not enforced: modes come back even if unconverged. Tangents are NaN unless `converged` and `gap > 1e-8 max|omega2|` |
@@ -49,6 +50,7 @@ means the selection splits a tied set and has no derivative. The transforms and 
 | $K x = \omega^2 M x$, {eq}`continuum-galerkin` (section 2) | `continuum_matrices`, `continuum` | `test_uniform_field_continuum_is_k_parallel_v_alfven`, `test_stellgap_ctok_parity` |
 | Sound-coupled pencil, {eq}`sound-pencil` (section 2) | `continuum_matrices`, `continuum` with `pressure` | `test_pure_sound_branch_without_curvature`, `test_geodesic_acoustic_mode_matches_winsor` |
 | Gap location and full width $2 f_0 \lvert c\rvert$, {eq}`gap-location` (section 3) | `mass_density`, `mode_family` | `n_ion` (`mass_density`; the mass is in atomic mass units) | jit, grad | `mode_family` is host-side: it builds the static `(m, n)` list |
+| Gap census, widest-gap mode (section 3) | `summary`, `plot_summary` | `test_summary_tae_gap_and_mode`, `test_summary_without_gap_or_mode` |
 | `gaps`, `gap_location` | `test_gaps_and_gap_location`, `test_elliptic_two_mode_gap_has_full_width_two_f0_c` |
 | $F y = \omega^2 G y$, {eq}`global-problem` (section 4) | `global_matrices`, `eigenmodes` | `test_ae3d_ctok_parity`, `test_ctok_bending_energy_matches_real_space_quadrature`, `test_konies_tae_frequency_and_convergence` |
 | AE3D block comparison, shear term {eq}`shear-term` | `global_matrices` | `test_ae3d_v31_blocks_and_energy_on_identical_inputs` |
