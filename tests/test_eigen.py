@@ -587,21 +587,21 @@ def test_targeted_eigenpairs_fallback_and_tied_selection():
 def test_solver_status_and_rejection_of_unconverged_gradients():
     h, rho = fax.mode_family(6, 13, 9), fax.mass_density(2e19, 1.00727647)
     options = dict(target_hz=6.46e4, count=4, ntheta=16, nzeta=4)
-    good, poor = (fax.eigenmodes(konies(40), h, rho, iters=iters, **options) for iters in (100, 1))
+    good, poor = (fax.eigenmodes(konies(40), h, rho, tol=tol, **options) for tol in (1e-10, 1e-20))  # 1e-20 is below roundoff
     assert good.status.converged and good.status.residual < 1e-10 and good.status.orthogonality < 1e-10 and good.status.gap > 0
-    assert not good.status.fallback and 1 < good.status.iterations < 100
-    assert not poor.status.converged and poor.status.residual > 1e-10 and poor.status.iterations == 1
+    assert not good.status.fallback and 0 < good.status.iterations < 100
+    assert not poor.status.converged and poor.status.residual > 1e-20
     full = fax.eigenmodes(konies(40), h, rho, ntheta=16, nzeta=4)
     assert full.status.converged and full.status.iterations == 0 and full.status.residual < 1e-12
 
     F, G = global_matrices(konies(40), h, rho, 16, 4)
     target = float((2 * np.pi * 6.46e4) ** 2)
-    assert jnp.isfinite(targeted_eigenvalues(F, G, target, 4, 100)).all()
-    assert jnp.isnan(targeted_eigenvalues(F, G, target, 4, 1)).all()
-    jvp = jax.jvp(lambda f: targeted_eigenvalues(Blocks(f, F.upper), G, target, 4, 1), (F.diag,), (jnp.ones_like(F.diag),))
+    assert jnp.isfinite(targeted_eigenvalues(F, G, target, 4, 100, 1e-10)).all()
+    assert jnp.isnan(targeted_eigenvalues(F, G, target, 4, 100, 1e-20)).all()
+    jvp = jax.jvp(lambda f: targeted_eigenvalues(Blocks(f, F.upper), G, target, 4, 100, 1e-20), (F.diag,), (jnp.ones_like(F.diag),))
     assert jnp.isnan(jvp[1]).all()
-    run = lambda iters: fax.frequency_hz(konies(40), h, rho, 0, 1, iters=iters, **options)  # noqa: E731
-    assert jnp.isfinite(run(100)) and jnp.isnan(run(1))
+    run = lambda tol: fax.frequency_hz(konies(40), h, rho, 0, 1, tol=tol, **options)  # noqa: E731
+    assert jnp.isfinite(run(1e-10)) and jnp.isnan(run(1e-20))
 
 
 def test_cluster_mean_first_derivative_at_degeneracy():
@@ -615,3 +615,11 @@ def test_cluster_mean_first_derivative_at_degeneracy():
     mean = lambda t: fax.eigenvalue_mean(jnp.diag(jnp.array([1.0, 1.1, 3.0])) + t * D, M, 0, 2)  # noqa: E731
     fd = (mean(1e-3) - 2 * mean(0.0) + mean(-1e-3)) / 1e-6  # no repeated eigenvalue anywhere: second order works
     assert jax.grad(jax.grad(mean))(0.0) == pytest.approx(fd, rel=1e-4)
+
+
+def test_split_solver_and_selection():
+    solver, grid = fax.eigen.split_solver({"count": 4, "tol": 1e-8, "ntheta": 16, "finite_beta": True})
+    assert solver == {"count": 4, "tol": 1e-8} and grid == {"ntheta": 16, "finite_beta": True}
+    lam = jnp.array([1.0, 2.0])
+    ok = lambda conv, gap: bool(fax.eigen.selected(jnp.asarray(conv), jnp.asarray(gap), lam))  # noqa: E731
+    assert ok(True, 0.1) and not ok(False, 0.1) and not ok(True, 0.0)  # a zero gap splits a tied set
