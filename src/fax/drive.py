@@ -134,7 +134,7 @@ def growth_rate(
     kt, kz = (jnp.fft.fftfreq(k, 1.0 / k)[:, None] for k in (ntheta, nzeta))
     kappa = geo.iota[:, None, None, None] * kt + kz.T  # (iota d_theta + d_zeta) -> i kappa
     chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2)))
-    weight = (0.5 * (1.0 + xi**2) * h / hbar[..., None, None])[:, :, None] * kernel[:, None]  # (S, L, H, T, Z)
+    weight = 0.5 * (1.0 + xi**2) * h / hbar[..., None, None] * jnp.sum(kernel, 1)[:, None]  # (S, L, T, Z): C = sum_h C_h, phase is h-free
     omega_hat = 1.0 / (jnp.abs(D)[:, None] * hbar)  # omega_zeta / v
     dens = jnp.asarray(ions.density) * jnp.ones_like(geo.s)
     pairs = np.array(
@@ -149,9 +149,7 @@ def growth_rate(
     def resonance(jk: jax.Array) -> jax.Array:
         j, k = jk[0], jk[1]
         kap = (j * geo.iota - k)[:, None]
-        phase = jnp.exp(-1j * (kap[..., None, None] * chi + j * g.theta - k * g.zeta)[:, :, None])
-        c = jnp.mean(weight * phase, axis=(-2, -1))  # (S, L, H)
-        C = jnp.sum(c, -1)
+        C = jnp.mean(weight * jnp.exp(-1j * (kap[..., None, None] * chi + j * g.theta - k * g.zeta)), axis=(-2, -1))  # (S, L)
         rate = jnp.maximum(jnp.abs(kap) * omega_hat, 1e-12)
         v = omega / rate
         dfde, f = _distribution(v, ions)
