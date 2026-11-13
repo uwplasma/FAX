@@ -14,6 +14,7 @@ coordinates. A Galerkin projection on ``exp(i(m theta - n zeta))`` gives
 
 from __future__ import annotations
 
+from numbers import Integral
 from typing import Any, NamedTuple
 
 import jax
@@ -40,8 +41,20 @@ def mass_density(n_ion: Any, ion_mass_amu: float = 1.0) -> jax.Array:
 
 def mode_family(n: int | tuple[int, ...], m_max: int, m_min: int = 0) -> jax.Array:
     """Harmonics ``(m, n)`` for ``m_min <= m <= m_max`` and the given toroidal mode numbers."""
-    ns = (n,) if isinstance(n, int) else tuple(n)
+    ns = (n,) if isinstance(n, Integral) else tuple(n)
+    check(m_max >= m_min, f"m_max={m_max} must be >= m_min={m_min}")
     return jnp.asarray([[m, nn] for nn in ns for m in range(m_min, m_max + 1)], dtype=float)
+
+
+def check_modes(geo: Geometry, h: jax.Array, density: Any) -> None:
+    """Host checks shared by :func:`continuum_matrices` and :func:`fax.eigen.global_matrices`."""
+    d = jnp.asarray(density)
+    check(h.ndim == 2 and h.shape[0] > 0 and h.shape[1] == 2, "harmonics must be a non-empty list of (m, n) pairs")
+    check(h == jnp.round(h), "harmonics must be integers")
+    check(jnp.sum(jnp.all(h[:, None] == h[None], -1)) == len(h), "harmonics must be distinct (duplicate (m, n) make the mass singular)")
+    check(jnp.isfinite(d) & (d > 0), "density must be positive and finite")
+    check(d.ndim == 0 or d.shape == geo.s.shape, "density must be a scalar or have one value per surface")
+    check(jnp.isfinite(geo.iota), "iota must be finite")
 
 
 def herm(a: jax.Array) -> jax.Array:
@@ -80,7 +93,7 @@ def continuum_matrices(geo: Geometry, harmonics: Any, density: Any, ntheta: int 
     ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``.
     """
     h = jnp.asarray(harmonics, dtype=float)
-    check(jnp.all(jnp.asarray(density) > 0), "density must be positive")
+    check_modes(geo, h, density)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")

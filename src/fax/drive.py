@@ -49,7 +49,7 @@ import numpy as np
 
 from .continuum import AMU, MU0
 from .eigen import _quad, global_matrices
-from .geometry import Geometry, _d_ds, surface_grid
+from .geometry import Geometry, _d_ds, check, surface_grid
 
 E = 1.602176634e-19
 
@@ -77,6 +77,10 @@ class FastIons:
     def __post_init__(self) -> None:
         if self.kind not in ("maxwellian", "slowing_down"):
             raise ValueError(f"unknown FastIons kind {self.kind!r}: use 'maxwellian' or 'slowing_down'")
+        for name in ("temperature_ev", "birth_ev", "critical_ev", "mass_amu"):
+            v = getattr(self, name)  # pytree rebuilds may hold None or axis specs: only numbers are checked
+            ok = not isinstance(v, (int, float, np.ndarray, jax.Array)) or (jnp.isfinite(v) & (v > 0))
+            check(ok, f"FastIons.{name} must be positive and finite")
 
 
 jax.tree_util.register_dataclass(

@@ -135,6 +135,24 @@ def test_inputs_are_validated_on_the_host():
         fax.surface_grid(replace(geo, bmnc=geo.bmnc.at[:, 0].set(-1.0)))
 
 
+@pytest.mark.parametrize("solver", [fax.continuum, fax.continuum_matrices, global_matrices])
+@pytest.mark.parametrize(
+    ("harmonics", "density", "iota", "match"),
+    [
+        ([[3.0, 2.0], [3.0, 2.0], [4.0, 2.0]], 3.4e-8, 0.4, "distinct"),
+        ([[1.5, 1.0]], 3.4e-8, 0.4, "integers"),
+        (np.zeros((0, 2)), 3.4e-8, 0.4, "non-empty"),
+        ([[1.0, 1.0]], np.inf, 0.4, "finite"),
+        ([[1.0, 1.0]], np.ones(3), 0.4, "one value per surface"),
+        ([[1.0, 1.0]], 3.4e-8, np.nan, "iota"),
+    ],
+)
+def test_bad_inputs_are_rejected(solver, harmonics, density, iota, match):
+    geo = fax.circular_torus(s=(jnp.arange(8) + 0.5) / 8, iota=iota)
+    with pytest.raises(ValueError, match=match):
+        solver(geo, jnp.asarray(harmonics), density)
+
+
 def test_global_matrices_validate_density_and_surfaces():
     geo, h = fax.circular_torus(s=(jnp.arange(8) + 0.5) / 8), fax.mode_family(1, 3)
     with pytest.raises(ValueError, match="density"):

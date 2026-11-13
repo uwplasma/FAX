@@ -51,6 +51,8 @@ def test_boundary_parameters_accept_tuples_and_reject_ambiguous_strings():
 def test_load_rejects_unknown_keys():
     with pytest.raises(ValueError):
         fax.load({"run": {"tsk": "continuum"}})
+    with pytest.raises(ValueError, match="unknown table"):
+        fax.load({"run": 3})
     assert fax.load({})["modes"]["n"] == [1]
 
 
@@ -131,3 +133,15 @@ def test_documented_transforms_and_failure_behaviour():
     assert jnp.isfinite(gamma(jnp.ones((24, 2)))) and jnp.isnan(gamma(jnp.full((24, 2), jnp.nan)))
     with pytest.raises(ValueError, match="unknown FastIons kind"):
         fax.FastIons(kind="beam")
+    for bad in (dict(temperature_ev=0), dict(birth_ev=-1.0), dict(critical_ev=np.nan), dict(mass_amu=jnp.inf)):
+        with pytest.raises(ValueError, match="positive and finite"):
+            fax.FastIons(**bad)
+    assert jax.tree_util.tree_map(lambda _: None, ions).mass_amu is None  # pytree rebuilds skip the check
+    assert jax.grad(lambda T: fax.FastIons(temperature_ev=T).temperature_ev)(1.0) == 1.0
+    with pytest.raises(ValueError, match="target_hz"):
+        fax.eigenmodes(geo, h, rho, target_hz=np.nan, **grid)
+    with pytest.raises(ValueError, match="target_hz"):
+        fax.eigenmodes(geo, h, rho, target_hz=0.0, **grid)
+    assert fax.mode_family(np.int64(2), 4).shape == (5, 2)
+    with pytest.raises(ValueError, match="m_max"):
+        fax.mode_family(1, 2, 3)
