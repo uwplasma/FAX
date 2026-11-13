@@ -52,7 +52,7 @@ The n = 2 continuum of the CTOK tokamak case with the six global modes nearest 3
 
 ## What FAX does not do
 
-The global model is low-β reduced ideal MHD without sound coupling, so there are no BAEs or BAAEs. The drive is
+The continuum can include sound coupling (BAE and BAAE gaps); the global model is low-β reduced ideal MHD without it, so there are no BAE or BAAE eigenmodes. The drive is
 perturbative, passing ions only, with zero orbit width and no finite Larmor radius. Continuum damping exists as an
 unmerged prototype. {doc}`validation` lists every open item with its numbers.
 

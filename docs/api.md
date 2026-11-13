@@ -47,6 +47,7 @@ means the selection splits a tied set and has no derivative. The transforms and 
 |---|---|---|
 | Conventions, $\sqrt g$, $B^\zeta$, $k_\parallel$ (section 1) | `surface_grid`, `jacobian_check`, `equilibrium_currents` | `test_conventions_and_geometry_diagnostics_on_ctok` |
 | $K x = \omega^2 M x$, {eq}`continuum-galerkin` (section 2) | `continuum_matrices`, `continuum` | `test_uniform_field_continuum_is_k_parallel_v_alfven`, `test_stellgap_ctok_parity` |
+| Sound-coupled pencil, {eq}`sound-pencil` (section 2) | `continuum_matrices`, `continuum` with `pressure` | `test_pure_sound_branch_without_curvature`, `test_geodesic_acoustic_mode_matches_winsor` |
 | Gap location and full width $2 f_0 \lvert c\rvert$, {eq}`gap-location` (section 3) | `mass_density`, `mode_family` | `n_ion` (`mass_density`; the mass is in atomic mass units) | jit, grad | `mode_family` is host-side: it builds the static `(m, n)` list |
 | `gaps`, `gap_location` | `test_gaps_and_gap_location`, `test_elliptic_two_mode_gap_has_full_width_two_f0_c` |
 | $F y = \omega^2 G y$, {eq}`global-problem` (section 4) | `global_matrices`, `eigenmodes` | `test_ae3d_ctok_parity`, `test_ctok_bending_energy_matches_real_space_quadrature`, `test_konies_tae_frequency_and_convergence` |
