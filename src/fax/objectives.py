@@ -25,8 +25,8 @@ from .eigen import (
     _hz,
     dense,
     eigenmodes,
-    eigenvalue_mean,
     global_matrices,
+    lowest_eigenvalues,
     selected,
     split_solver,
     targeted_eigenpairs,
@@ -293,7 +293,7 @@ def geometry_frequencies(geo: Geometry, design: Design, mode_count: int = 3) -> 
         K, M = dense(F), dense(G)
         lam, x = jax.lax.stop_gradient(generalized_eigh(K, M))
         status = _dense_status(K, M, lam, x, solver.get("tol", 1e-10))._replace(gap=lam[mode_count] - lam[mode_count - 1])
-        omega2 = jnp.stack([eigenvalue_mean(K, M, i, i + 1) for i in range(mode_count)])
+        omega2 = lowest_eigenvalues(K, M, mode_count)
     else:
         lam, _, status = targeted_eigenpairs(F, G, (2 * jnp.pi * target) ** 2, **solver)
         omega2 = lam[:mode_count]
@@ -316,4 +316,4 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     geo = _nodes(geo, design.nodes)
     ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
     rate = lambda w2, y: growth_rate(jnp.sqrt(w2), y, geo, design.harmonics, ions, design.density, **drive)  # noqa: E731
-    return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)
+    return _reject(jax.lax.map(lambda a: rate(*a), (ev.omega2[:mode_count], ev.structures[:mode_count])), ev.status, ev.omega2)
