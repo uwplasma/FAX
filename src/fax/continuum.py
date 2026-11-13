@@ -10,6 +10,9 @@ coordinates. A Galerkin projection on ``exp(i(m theta - n zeta))`` gives
 
     K_ij = < |J| |grad s|^2 k_i k_j / mu0 >,   M_ij = < rho |J| |grad s|^2 / B^2 >,
     k_j = (n_j - m_j iota) |B| / (G + iota I).
+
+With ``pressure`` the surface also carries sound: the surface displacement couples to the parallel
+displacement through the geodesic curvature (Cheng & Chance 1986; docs/theory.md section 2).
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ AMU = 1.66053906660e-27
 
 
 class Matrices(NamedTuple):
-    """Hermitian stiffness ``K`` and mass ``M``, shape ``(surfaces, H, H)``."""
+    """Hermitian stiffness ``K`` and mass ``M``, shape ``(surfaces, H, H)``, or ``(surfaces, 2H, 2H)`` with sound."""
 
     K: jax.Array
     M: jax.Array
@@ -85,12 +88,44 @@ def angle_mean(f: jax.Array, h: jax.Array) -> jax.Array:
     return jnp.where(hi, jnp.conj(F), F) / (T * Z)
 
 
-def continuum_matrices(geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32) -> Matrices:
+def sound_coupling(
+    geo: Geometry, h: jax.Array, rho: jax.Array, pressure: Any, gamma: float, grid: Any
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    """Sound blocks added to the shear-Alfven pencil, same ``<.>`` weighting and a common factor ``psi'`` dropped.
+
+    The unknown is ``(E_j, c_j)``: the surface displacement potential and ``c = xi_par / |B|``. With the geodesic
+    curvature ``kappa_s / 2 = (I d_zeta|B| - G d_theta|B|) / (psi' (G + iota I) |B|)`` the compression is
+    ``D = kappa_s E + B.grad c`` and ``B.grad c_j = -i a_j |B|^2 c_j``, ``a_j = (n_j - m_j iota) / (G + iota I)``.
+    The energy ``gamma p <|sqrt g_B| |D|^2>`` and the kinetic energy ``rho <|sqrt g_B| |B|^2 |c|^2>`` give the blocks
+    ``(pp, pc, cc)`` of the stiffness (the ``cp`` block is ``pc^H``) and the mass ``mc`` of ``c``.
+    """
+    GI = geo.G + geo.iota * geo.I
+    psi = (jnp.abs(grid.sqrt_g) * grid.B**2).mean((1, 2)) / GI  # psi' from the embedding, per surface
+    cur = (geo.I[:, None, None] * grid.dB[..., 2] - geo.G[:, None, None] * grid.dB[..., 1]) / (psi * GI)[:, None, None] / grid.B
+    a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / GI[:, None]
+    J, B = jnp.abs(grid.jacobian), grid.B
+    gp = (gamma * jnp.broadcast_to(jnp.asarray(pressure, dtype=float), geo.s.shape))[:, None, None]
+    mean = lambda f: angle_mean(f, h)  # noqa: E731
+    pp = gp * mean(4.0 * J * cur**2)
+    pc = -2j * gp * a[:, None, :] * mean(J * cur * B**2)
+    cc = gp * a[:, :, None] * a[:, None, :] * mean(J * B**4)
+    mc = rho[:, None, None] * mean(J * B**2)
+    return pp, pc, cc, mc
+
+
+def continuum_matrices(
+    geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32, pressure: Any = None, gamma: float = 5.0 / 3.0
+) -> Matrices:
     """Assemble the per-surface continuum matrices with FFT-exact angle quadrature.
 
     Raises ``ValueError`` (host inputs only) unless ``rho > 0``, ``G + iota I != 0`` and the grid
     resolves the requested couplings: ``ntheta > 2 max|dm|`` and ``nzeta > 2 max|dn|``, since
     ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``.
+
+    ``pressure`` (Pa, a scalar or one value per surface; default ``None`` = off) adds the acoustic coupling of
+    :func:`sound_coupling` with adiabatic index ``gamma``: the matrices become ``2H x 2H``, the first ``H`` unknowns the
+    surface displacement and the last ``H`` the parallel displacement over ``|B|``. Include ``-m`` and ``m`` (``mode_family``
+    with ``m_min < 0``) when ``n = 0``, since the geodesic curvature couples ``m`` to ``-m`` through the conjugate sideband.
     """
     h = jnp.asarray(harmonics, dtype=float)
     check_modes(geo, h, density)
@@ -103,12 +138,26 @@ def continuum_matrices(geo: Geometry, harmonics: Any, density: Any, ntheta: int 
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
     K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h)
     M = rho[:, None, None] * angle_mean(weight, h)
+    if pressure is not None:
+        check(jnp.all(jnp.isfinite(jnp.asarray(pressure)) & (jnp.asarray(pressure) >= 0)), "pressure must be finite and non-negative")
+        check(
+            jnp.asarray(pressure).ndim == 0 or jnp.asarray(pressure).shape == geo.s.shape,
+            "pressure must be a scalar or have one value per surface",
+        )
+        check(gamma > 0, "gamma must be positive")
+        pp, pc, cc, mc = sound_coupling(geo, h, rho, pressure, gamma, grid)
+        Z = jnp.zeros_like(mc)
+        K = jnp.concatenate([jnp.concatenate([K + pp, pc], -1), jnp.concatenate([herm(pc), cc], -1)], -2)
+        M = jnp.concatenate([jnp.concatenate([M, Z], -1), jnp.concatenate([Z, mc], -1)], -2)
     return Matrices(0.5 * (K + herm(K)), 0.5 * (M + herm(M)))
 
 
-def continuum(geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32) -> jax.Array:
-    """Continuum frequencies in Hz, sorted on each surface, shape ``(surfaces, H)``."""
-    K, M = continuum_matrices(geo, harmonics, density, ntheta, nzeta)
+def continuum(
+    geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32, pressure: Any = None, gamma: float = 5.0 / 3.0
+) -> jax.Array:
+    """Continuum frequencies in Hz, sorted on each surface, shape ``(surfaces, H)`` (``2H`` with ``pressure``, see
+    :func:`continuum_matrices`)."""
+    K, M = continuum_matrices(geo, harmonics, density, ntheta, nzeta, pressure, gamma)
     w2 = generalized_eigh(K, M)[0]
     return jnp.sqrt(jnp.maximum(w2, 0.0)) / (2.0 * jnp.pi)
 

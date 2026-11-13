@@ -4,7 +4,7 @@ Every physics claim in FAX is a test in `tests/`, tied to an analytic result
 or a published number. CI runs them on Python 3.10–3.13 in float64. The numbers
 below are the test thresholds and the measured values of the tests named here.
 
-**Scope.** FAX is a reduced model: restricted finite-$\beta$ terms (experimental), no sound coupling or BAE, no continuum or
+**Scope.** FAX is a reduced model: restricted finite-$\beta$ terms (experimental), sound coupling in the continuum only (no BAE eigenmodes), no continuum or
 electron damping in the released code, no trapped particles, finite orbit width or finite Larmor radius in the drive, which is zero-orbit-width,
 passing-only and perturbative (valid to about 200 keV in the Könies case). Every gate below is a statement inside that scope;
 "Not done" at the end lists the rest. Derivatives are first order ({doc}`api`).
@@ -669,8 +669,8 @@ tokamak gates use {func}`fax.circular_torus`, axisymmetric (`helical = 0`,
 
 ## Not done
 
-- Sound and fast-wave coupling (no BAE gap; $\gamma p|\nabla\cdot\boldsymbol\xi|^2$
-  dropped) and the cause of the disagreement between AE3D's and FAX's $J_\parallel$ blocks for CTOK.
+- Sound and fast-wave coupling in the global operator (no BAE eigenmodes; $\gamma p|\nabla\cdot\boldsymbol\xi|^2$
+  dropped there; the continuum has opt-in sound coupling), the Könies–Eremin 2010 coupled-continuum comparison, and the cause of the disagreement between AE3D's and FAX's $J_\parallel$ blocks for CTOK.
 - Trapped and precessing fast ions in the drive (bounce-averaged
   precession resonances), and the covariant $B_s$ and $\delta B_\parallel$ in the drift.
 - Finite orbit width and finite Larmor radius in the drive.

@@ -17,7 +17,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .continuum import continuum, generalized_eigh
+from .continuum import continuum, continuum_matrices, generalized_eigh
 from .drive import FastIons, growth_rate
 from .eigen import (
     Status,
@@ -317,3 +317,112 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
     rate = lambda w2, y: growth_rate(jnp.sqrt(w2), y, geo, design.harmonics, ions, design.density, **drive)  # noqa: E731
     return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)
+
+
+def _gap_type(dm: int, dn: int) -> str:
+    """Name of a gap from the poloidal and toroidal (in field periods) mode-number differences of the coupled harmonics."""
+    if dn == 0:
+        return {1: "TAE", 2: "EAE"}.get(dm, "other")
+    return "MAE" if dm == 0 else "HAE"
+
+
+def summary(
+    geometry: Geometry,
+    harmonics: Any,
+    mass_density: Any,
+    *,
+    window: tuple[float, float] | None = None,
+    count: int = 4,
+    ions: tuple[float, float] | None = None,
+    max_gaps: int = 6,
+    min_width: float = 0.02,
+    ntheta: int = 32,
+    nzeta: int = 32,
+    iters: int = 100,
+    tol: float = 1e-10,
+) -> dict[str, Any]:
+    """Global continuum gaps and the global mode inside the widest one, as one plain dictionary (host arrays, not differentiable).
+
+    ``mass_density`` is the ion mass density in kg/m^3, as for :func:`fax.continuum` (see :func:`fax.mass_density`); frequencies
+    scale as its inverse square root. ``ions = (n_i, amu)`` only records the number density in m^-3 and the ion mass behind it.
+    ``harmonics`` are ``(m, n)`` pairs, ``n`` a multiple of ``nfp`` (see :func:`fax.mode_family`). ``window = (low, high)`` in kHz
+    keeps the gaps whose centre lies inside.
+
+    A **gap** is a global one: for adjacent sorted branches ``k`` and ``k + 1`` it is the band ``[max_s f_k, min_s f_{k+1}]``,
+    kept if it is non-empty and wider than ``min_width`` of its centre, so that no branch crosses it at any surface. The
+    widest ``max_gaps`` are returned, widest first. Each is typed from the two harmonics that dominate the branch eigenvectors
+    on the surface where the branches are closest: TAE (``dm = 1``), EAE (``dm = 2``), MAE (``dm = 0``, ``dn != 0``), HAE
+    (both nonzero), ``other`` otherwise. The ``count`` global modes nearest the centre of the widest gap are solved
+    (:func:`fax.eigenmodes`; ``iters``, ``tol``, ``ntheta``, ``nzeta``) and the one inside the band nearest its centre is the
+    ``mode``. Without one, ``mode`` is ``None`` and ``mode_reason`` says why.
+
+    Returns ``harmonics``, ``density_kg_m3``, ``density_m3`` and ``ion_mass_amu`` (the last two ``None`` without ``ions``),
+    ``window_khz``, ``gaps`` (``center_khz``, ``width_khz``, ``low_khz``, ``high_khz``, ``s`` and ``iota`` of the closest
+    approach, ``type``, ``harmonics``), ``mode`` (``frequency_khz``, ``peak_s``, ``in_gap``, ``converged``, ``residual``,
+    ``structure`` of shape ``(surfaces, harmonics)``), ``mode_reason`` and ``profiles`` (``s``, ``iota``, ``continuum_khz``),
+    which :func:`fax.plot.plot_summary` draws.
+    """
+    h = np.asarray(harmonics, dtype=float)
+    rho = jnp.asarray(mass_density)
+    grid = {"ntheta": ntheta, "nzeta": nzeta}
+    f = np.asarray(continuum(geometry, h, rho, **grid)) / 1e3
+    s, iota = np.asarray(geometry.s), np.asarray(geometry.iota)
+    low, high = f[:, :-1].max(0), f[:, 1:].min(0)
+    found = []
+    for k in np.flatnonzero(high - low > 0):
+        center = 0.5 * (low[k] + high[k])
+        if high[k] - low[k] >= min_width * center and (window is None or window[0] <= center <= window[1]):
+            found.append((high[k] - low[k], k, center))
+    found = sorted(found, reverse=True)[:max_gaps]
+    gaps = []
+    for w, k, center in found:
+        i = int(np.argmin(f[:, k + 1] - f[:, k]))  # the surface where the two branches approach
+        near = np.arange(3) + min(max(i - 1, 0), len(s) - 3)  # surface_grid needs three surfaces
+        K, M = continuum_matrices(geometry.surfaces(near), h, rho, **grid)
+        x = np.asarray(generalized_eigh(K, M)[1])[i - near[0], :, k : k + 2]
+        a, b = np.argsort(-(np.abs(x) ** 2).sum(1))[:2]
+        dm, dn = abs(h[a, 0] - h[b, 0]), round(abs(h[a, 1] - h[b, 1]) / geometry.nfp)
+        gaps.append(
+            dict(
+                center_khz=float(center),
+                width_khz=float(w),
+                low_khz=float(low[k]),
+                high_khz=float(high[k]),
+                s=float(s[i]),
+                iota=float(iota[i]),
+                type=_gap_type(int(dm), dn),
+                harmonics=h[[a, b]].astype(int).tolist(),
+            )
+        )
+    mode, reason = None, "no global gap in the window"
+    if gaps:
+        g = gaps[0]
+        em = eigenmodes(geometry, h, rho, target_hz=1e3 * g["center_khz"], count=count, iters=iters, tol=tol, **grid)
+        freq = np.asarray(em.frequencies_hz) / 1e3
+        inside = np.flatnonzero((g["low_khz"] < freq) & (freq < g["high_khz"]))
+        if inside.size:
+            j = inside[np.argmin(abs(freq[inside] - g["center_khz"]))]
+            power = (np.abs(np.asarray(em.structures)[j]) ** 2).sum(-1)
+            mode = dict(
+                frequency_khz=float(freq[j]),
+                peak_s=float(s[power.argmax()]),
+                in_gap=True,
+                converged=bool(em.status.converged),
+                residual=float(em.status.residual),
+                structure=np.abs(np.asarray(em.structures)[j]),
+            )
+            reason = ""
+        else:
+            reason = f"none of the {count} modes nearest {g['center_khz']:.1f} kHz lies inside the widest gap"
+    n_i, amu = ions if ions else (None, None)
+    return dict(
+        harmonics=h.astype(int).tolist(),
+        density_kg_m3=float(rho),
+        density_m3=n_i,
+        ion_mass_amu=amu,
+        window_khz=window,
+        gaps=gaps,
+        mode=mode,
+        mode_reason=reason,
+        profiles=dict(s=s, iota=iota, continuum_khz=f),
+    )

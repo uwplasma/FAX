@@ -25,8 +25,10 @@ from .objectives import (
     prepare_design,
     soft_max,
     state_geometry,
+    summary,
     window_risk,
 )
+from .plot import plot_summary
 
 __version__ = "1.0.1"
 __all__ = [
@@ -60,11 +62,13 @@ __all__ = [
     "load",
     "mass_density",
     "mode_family",
+    "plot_summary",
     "prepare_design",
     "read_boozmn",
     "run",
     "soft_max",
     "state_geometry",
+    "summary",
     "surface_grid",
     "window_risk",
 ]
