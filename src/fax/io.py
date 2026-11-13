@@ -71,15 +71,15 @@ def geometry(config: dict[str, dict[str, Any]]) -> Geometry:
     sources = {
         "boozmn": lambda: read_boozmn(g["path"]),
         "wout": lambda: from_wout(g["path"], **booz),
-        "vmec": lambda: from_vmec_input(g["path"], g["ns"], g["ftol"], g["max_iter"], **booz),
-        "circular": lambda: circular_torus(),
+        "vmec": lambda: from_vmec_input(g["path"], ns=g["ns"], ftol=g["ftol"], max_iter=g["max_iter"], **booz),
+        "circular": circular_torus,
     }
     if g["source"] not in sources:
         raise ValueError(f"geometry.source must be one of {sorted(sources)}")
     return sources[g["source"]]()
 
 
-def run(case: str | Path | dict[str, Any], save: bool = True) -> dict[str, Any]:
+def run(case: str | Path | dict[str, Any], *, save: bool = True) -> dict[str, Any]:
     """Run a case and return its results as NumPy arrays (also written to ``run.output``)."""
     config = load(case)
     r, m = config["run"], config["modes"]
