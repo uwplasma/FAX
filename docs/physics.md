@@ -149,7 +149,7 @@ FAX computes:
 - the perturbative drive of a given mode by a passing fast-ion population, for zero orbit width and zero Larmor radius;
 - first-order derivatives of these quantities with respect to the equilibrium.
 
-It does not include sound coupling, so there are no BAE or BAAE gaps. Continuum damping and electron damping are not computed;
+The continuum can include sound coupling, which opens the BAE and BAAE gaps (pass `pressure` to {func}`fax.continuum`); the global modes do not, so there are no BAE or BAAE eigenmodes. Continuum damping and electron damping are not computed;
 a growth rate must be reduced by an external damping rate. The drive covers passing ions only: trapped and precessing ions,
 finite orbit width and finite Larmor radius are absent, and the perturbative drive is valid up to about 200 keV in the Könies
 case. A drive computed this way is a way to rank designs, and the number it gives is about 0.6 of the CAS3D-K zero-orbit-width

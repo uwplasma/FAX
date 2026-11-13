@@ -190,7 +190,7 @@ $\langle|\sqrt g|B^2\rangle/(G+\iota I)$ of the embedding. The mass $M$ stays po
 couples $E_0$ to both $c_{\pm1}$. `pressure` (Pa, scalar or one value per surface) and `gamma` (default 5/3) are new keywords of
 {func}`fax.continuum` and {func}`fax.continuum_matrices`; with `pressure=None` nothing changes.
 
-**Limits** (tests `tests/test_sound.py`).
+**Limits** (tests `tests/test_continuum.py`).
 
 - *Sound branch.* For $\kappa_s = 0$ the blocks decouple and the acoustic half is $\omega = |k_\parallel|c_s$, $c_s^2 = \gamma p/\rho$.
 - *Geodesic acoustic mode.* For a large-aspect-ratio circular tokamak, $B = B_0(1-\epsilon\cos\theta)$, $\kappa_s = -2\epsilon\sin\theta/\psi'$ and the
