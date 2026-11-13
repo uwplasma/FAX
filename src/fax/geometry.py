@@ -177,7 +177,7 @@ def from_wout(wout: Any, *, mboz: int = 8, nboz: int = 8, surfaces: tuple[float,
     return from_booz_xform(output, s, int(transform.nfp))
 
 
-def from_vmec_input(path: str | Path, ns: int | None = None, ftol: float = 1e-12, max_iter: int = 5000, **booz: Any) -> Geometry:
+def from_vmec_input(path: str | Path, *, ns: int | None = None, ftol: float = 1e-12, max_iter: int = 5000, **booz: Any) -> Geometry:
     """Solve a fixed-boundary VMEC input with ``vmex`` and transform it.
 
     ``ns=None`` runs the input's own ``NS_ARRAY`` ladder; an integer runs one stage
