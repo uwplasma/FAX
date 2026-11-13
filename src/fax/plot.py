@@ -45,12 +45,13 @@ def plot_results(folder: str | Path) -> list[Path]:
 def plot_summary(summary: dict, path: str | Path, *, colors: int = 64, dpi: int = 130) -> Path:
     """Draw the dictionary of :func:`fax.summary` as one small palette PNG at ``path`` and return the path.
 
-    Three panels: the continuum against ``s`` with each gap shaded where it is at least half its widest and labelled by its
-    type and centre (kHz); the rotational transform with a mark where each gap is widest; the radial harmonics of the global
-    mode, with its frequency, peak radius and whether it sits in the gap. The title carries the assumed density and ion mass.
+    Three panels: the continuum against ``s`` with each global gap shaded as a frequency band, labelled with its type and width, and
+    the mode marked at its peak radius; the rotational transform with a mark where each gap's branches are closest; the radial
+    harmonics of the global mode (or the reason there is none). The title carries the density, and the ion mass when given.
     ``colors`` is the palette size (the PNG is about 20 KB); ``dpi`` sets the resolution.
     """
     import io
+    import textwrap
 
     import matplotlib
 
@@ -62,9 +63,9 @@ def plot_summary(summary: dict, path: str | Path, *, colors: int = 64, dpi: int 
     s, f = prof["s"], prof["continuum_khz"]
     fig, (a0, a1, a2) = plt.subplots(1, 3, figsize=(10.0, 3.0), constrained_layout=True)
     a0.plot(s, f, color="0.35", lw=0.8)
-    for k, g in zip(prof["branch"], gaps, strict=True):
-        a0.fill_between(s, f[:, k], f[:, k + 1], where=f[:, k + 1] - f[:, k] >= 0.5 * g["width_khz"], color="C1", alpha=0.3, lw=0)
-        a0.annotate(f"{g['type']} {g['center_khz']:.0f}", (g["s"], g["center_khz"]), ha="center", va="center", fontsize=7)
+    for g in gaps:
+        a0.axhspan(g["low_khz"], g["high_khz"], color="C1", alpha=0.35, lw=0)
+        a0.annotate(f"{g['type']} {g['width_khz']:.1f} kHz", (s[-1], g["center_khz"]), ha="right", va="center", fontsize=7)
     if mode is not None:
         a0.plot(mode["peak_s"], mode["frequency_khz"], "o", color="C3", ms=5, label="global mode")
         a0.legend(fontsize=7, loc="upper left")
@@ -82,22 +83,23 @@ def plot_summary(summary: dict, path: str | Path, *, colors: int = 64, dpi: int 
         a1.annotate(g["type"], (g["s"], g["iota"]), textcoords="offset points", xytext=(-26, 4 - 11 * j), fontsize=7)
     a1.set(xlabel="s", ylabel="\u03b9", title="rotational transform", box_aspect=1)
     if mode is None:
-        a2.text(0.5, 0.5, "no gap in the window", ha="center", va="center", transform=a2.transAxes)
-        a2.set(xlabel="s", title="global mode", box_aspect=1)
+        a2.text(0.5, 0.5, textwrap.fill(summary["mode_reason"], 28), ha="center", va="center", fontsize=8, transform=a2.transAxes)
+        a2.set(xlabel="s", title="no global mode", box_aspect=1)
     else:
         top = mode["structure"].max()
         keep = [j for j in range(len(summary["harmonics"])) if mode["structure"][:, j].max() > 0.1 * top]  # the dominant harmonics
         for j in keep:
             a2.plot(s, mode["structure"][:, j] / top, label="({},{})".format(*summary["harmonics"][j]))
-        flag = "in gap" if mode["in_gap"] else "not in gap"
         a2.set(
             xlabel="s",
             ylabel="|\u03c6_mn| (normalized)",
             box_aspect=1,
-            title=f"{mode['frequency_khz']:.1f} kHz, s = {mode['peak_s']:.2f}, {flag}" + ("" if mode["converged"] else ", unconverged"),
+            title=f"{mode['frequency_khz']:.1f} kHz, s = {mode['peak_s']:.2f}" + ("" if mode["converged"] else ", unconverged"),
         )
         a2.legend(fontsize=7)
-    fig.suptitle(f"n_i = {summary['density_m3']:.2g} m\u207b\u00b3, ion mass {summary['ion_mass_amu']:g} amu", fontsize=9)
+    n_i, amu = summary["density_m3"], summary["ion_mass_amu"]
+    plasma = f"n_i = {n_i:.2g} m\u207b\u00b3, ion mass {amu:g} amu" if n_i else f"rho = {summary['density_kg_m3']:.3g} kg/m\u00b3"
+    fig.suptitle(plasma, fontsize=9)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, facecolor="white")
     plt.close(fig)

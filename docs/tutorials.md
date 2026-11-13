@@ -27,10 +27,7 @@ differentiates the TAE frequency with respect to the mass density, and evaluates
 {func}`fax.soft_max` and {func}`fax.window_risk`. With `RESEARCH = True` it also solves every mode densely and checks the angle-grid
 convergence.
 
-One call summarizes a geometry: {func}`fax.summary` returns the gaps (centre and width in kHz, radius, TAE/EAE/MAE/HAE type) and the global mode
-of the widest one with its solver status and whether it sits in the gap, and {func}`fax.plot_summary` draws the continuum, the rotational
-transform and the mode as one small PNG. `fax.summary(geo, fax.mode_family(1, 3, 0), 2e19, ion_mass=2.0)` takes the ion number density
-in m^-3, since frequencies scale as its inverse square root.
+One call summarizes a geometry: {func}`fax.summary` returns the global gaps (a band no continuum branch crosses at any surface; centre and width in kHz, TAE/EAE/MAE/HAE type) and the global mode inside the widest one with its solver status, and {func}`fax.plot_summary` draws the continuum, the rotational transform and the mode as one small PNG. `fax.summary(geo, fax.mode_family(1, 3, 0), fax.mass_density(2e19, 2.0))` takes the mass density, like {func}`fax.continuum`; frequencies scale as its inverse square root.
 
 ## 2. A continuum from a `boozmn` file
 

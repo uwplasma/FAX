@@ -140,31 +140,37 @@ def test_fixed_geometry_derivative_has_a_step_size_plateau(target):
 
 
 def test_summary_tae_gap_and_mode(tmp_path):
-    """The widest gap of a circular torus is the TAE at the cylindrical crossing, and the global mode sits in it."""
-    N, R0, B0, n_i = 24, 10.0, 3.0, 2e19
+    """The TAE band of a circular torus is a global gap at the cylindrical crossing, and the global mode lies inside it."""
+    N, R0, B0, n_i, amu = 32, 10.0, 3.0, 2e19, 1.00727647
     s = (jnp.arange(N) + 0.5) / N
-    geo = fax.circular_torus(
-        s=s, major_radius=R0, minor_radius=1.0, B0=B0, iota=2 / 3 + 0 * s, epsilon_B=0.3
-    )  # the TAE crossing on every surface
-    out = fax.summary(geo, fax.mode_family(1, 2, 1), n_i, ion_mass=1.00727647, count=3, ntheta=16, nzeta=4)
+    geo = fax.circular_torus(s=s, major_radius=R0, minor_radius=1.0, B0=B0, iota=0.5 + 0.35 * s, epsilon_B=0.15)
+    rho = fax.mass_density(n_i, amu)
+    out = fax.summary(geo, fax.mode_family(1, 2, 1), rho, ions=(n_i, amu), count=3, ntheta=16, nzeta=4)
     iota_c, w_hat = fax.gap_location(1, 1, 1)
-    f_c = w_hat * B0 / np.sqrt(4e-7 * np.pi * float(fax.mass_density(n_i, 1.00727647))) / (2 * np.pi * R0) / 1e3
+    f_c = w_hat * B0 / np.sqrt(4e-7 * np.pi * float(rho)) / (2 * np.pi * R0) / 1e3
     gap = out["gaps"][0]
     assert gap["type"] == "TAE" and sorted(gap["harmonics"]) == [[1, 1], [2, 1]]
-    assert abs(gap["iota"] - iota_c) < 1e-9 and abs(gap["center_khz"] / f_c - 1) < 0.1
+    assert gap["low_khz"] < gap["center_khz"] < gap["high_khz"]
+    assert abs(gap["center_khz"] / f_c - 1) < 0.05 and abs(gap["iota"] - iota_c) < 0.05
     mode = out["mode"]
-    assert (
-        mode["in_gap"] and mode["converged"] and abs(mode["frequency_khz"] / gap["center_khz"] - 1) < gap["width_khz"] / gap["center_khz"]
-    )
-    assert (out["density_m3"], out["ion_mass_amu"]) == (n_i, 1.00727647)
+    assert mode["in_gap"] and mode["converged"] and gap["low_khz"] < mode["frequency_khz"] < gap["high_khz"]
+    assert (out["density_m3"], out["ion_mass_amu"], out["density_kg_m3"]) == (n_i, amu, float(rho))
     png = fax.plot_summary(out, tmp_path / "summary.png")
     assert png.stat().st_size > 5000
 
 
-def test_summary_without_gap_in_window(tmp_path):
-    """An empty window gives no gaps and no mode, and the figure says so."""
+def test_summary_without_gap_or_mode(tmp_path, monkeypatch):
+    """An empty window gives no gaps and no mode, a gap without a mode in it says why, and the figure draws both."""
     s = (jnp.arange(20) + 0.5) / 20
     geo = fax.circular_torus(s=s, iota=0.5 + 0.35 * s, epsilon_B=0.3)
-    out = fax.summary(geo, fax.mode_family(1, 2, 1), 2e19, window=(1e6, 2e6), ntheta=16, nzeta=4)
-    assert out["gaps"] == [] and out["mode"] is None
+    rho, h = fax.mass_density(2e19, 2.0), fax.mode_family(1, 2, 1)
+    out = fax.summary(geo, h, rho, window=(1e6, 2e6), ntheta=16, nzeta=4)
+    assert out["gaps"] == [] and out["mode"] is None and "no global gap" in out["mode_reason"]
     assert fax.plot_summary(out, tmp_path / "none.png").exists()
+    solve = fax.objectives.eigenmodes
+    monkeypatch.setattr(
+        fax.objectives, "eigenmodes", lambda *a, **k: (lambda m: m._replace(frequencies_hz=3 * m.frequencies_hz))(solve(*a, **k))
+    )
+    out = fax.summary(geo, h, rho, count=1, ntheta=16, nzeta=4)  # every mode outside the band
+    assert out["gaps"] and out["mode"] is None and "lies inside" in out["mode_reason"]
+    assert fax.plot_summary(out, tmp_path / "nomode.png").exists()
