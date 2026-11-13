@@ -55,8 +55,9 @@ def load(case: str | Path | dict[str, Any]) -> dict[str, dict[str, Any]]:
         case = tomllib.loads(Path(case).expanduser().read_text())
     config = {table: dict(values) for table, values in DEFAULTS.items()}
     for table, values in case.items():
-        if table not in config or set(values) - set(config[table]):
-            raise ValueError(f"unknown table or key in [{table}]: {sorted(set(values) - set(config.get(table, {})))}")
+        bad = sorted(set(values) - set(config.get(table, {}))) if isinstance(values, dict) else [table]
+        if bad or table not in config:
+            raise ValueError(f"unknown table or key in [{table}]: {bad}")
         config[table].update(values)
     for table, key in (("geometry", "path"), ("run", "output")):
         if config[table][key] is not None:
