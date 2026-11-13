@@ -44,6 +44,11 @@ def mode_family(n: int | tuple[int, ...], m_max: int, m_min: int = 0) -> jax.Arr
     return jnp.asarray([[m, nn] for nn in ns for m in range(m_min, m_max + 1)], dtype=float)
 
 
+def herm(a: jax.Array) -> jax.Array:
+    """Conjugate transpose over the last two axes."""
+    return jnp.conj(jnp.swapaxes(a, -1, -2))
+
+
 def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Solve ``K x = lam M x`` for Hermitian ``K`` and positive-definite ``M`` (batched).
 
@@ -51,9 +56,8 @@ def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     """
     L = jnp.linalg.cholesky(M)
     tri = lambda b, trans: solve_triangular(L, b, lower=True, trans=trans)  # noqa: E731
-    herm = lambda a: jnp.conj(jnp.swapaxes(a, -1, -2))  # noqa: E731
     A = herm(tri(herm(tri(K, 0)), 0))  # L^-1 K L^-H by two triangular solves
-    lam, y = jnp.linalg.eigh(0.5 * (A + jnp.conj(jnp.swapaxes(A, -1, -2))))
+    lam, y = jnp.linalg.eigh(0.5 * (A + herm(A)))
     return lam, tri(y, 2)  # L^-H y
 
 
@@ -86,8 +90,7 @@ def continuum_matrices(geo: Geometry, harmonics: Any, density: Any, ntheta: int 
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
     K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h)
     M = rho[:, None, None] * angle_mean(weight, h)
-    herm = lambda A: 0.5 * (A + jnp.conj(jnp.swapaxes(A, -1, -2)))  # noqa: E731
-    return Matrices(herm(K), herm(M))
+    return Matrices(0.5 * (K + herm(K)), 0.5 * (M + herm(M)))
 
 
 def continuum(geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32) -> jax.Array:
