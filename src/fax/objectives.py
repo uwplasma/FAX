@@ -19,7 +19,18 @@ import numpy as np
 
 from .continuum import continuum, generalized_eigh
 from .drive import FastIons, growth_rate
-from .eigen import Status, _dense_status, _hz, dense, eigenmodes, eigenvalue_mean, global_matrices, targeted_eigenpairs
+from .eigen import (
+    Status,
+    _dense_status,
+    _hz,
+    dense,
+    eigenmodes,
+    eigenvalue_mean,
+    global_matrices,
+    selected,
+    split_solver,
+    targeted_eigenpairs,
+)
 from .geometry import Geometry, from_booz_xform, surface_grid
 
 
@@ -62,6 +73,11 @@ def compression_harmonics(geo: Geometry, ntheta: int = 32, nzeta: int = 64) -> t
     g = surface_grid(geo, ntheta, nzeta).grad_s2
     c = jnp.fft.fft2(g / jnp.mean(g, axis=(1, 2), keepdims=True) - 1.0) / (ntheta * nzeta)
     return c, jnp.fft.fftfreq(ntheta, 1.0 / ntheta), -jnp.fft.fftfreq(nzeta, 1.0 / nzeta)
+
+
+def _nodes(geo: Geometry, n: int) -> Geometry:
+    """``geo`` on ``n`` uniform interior finite-element nodes ``k / (n + 1)``."""
+    return geo.interpolate(jnp.arange(1, n + 1) / (n + 1))
 
 
 def continuum_cost(
@@ -132,7 +148,7 @@ def classify_modes(
     A gap mode may carry a weak resonant tail (the CTOK TAE does), so ``localization`` is reported but not tested. The
     result serves selection and reporting and is not differentiable.
     """
-    solve = lambda n, k: eigenmodes(geo.interpolate(jnp.arange(1, n + 1) / (n + 1)), harmonics, density, count=k, **options)  # noqa: E731
+    solve = lambda n, k: eigenmodes(_nodes(geo, n), harmonics, density, count=k, **options)  # noqa: E731
     coarse, fine = solve(nodes, count), solve(2 * nodes + 1, 2 * count + 4)  # twice the nodes: twice the continuum modes per window
     n = 2 * nodes + 1
     f_c, f_f = (np.asarray(m.frequencies_hz) for m in (coarse, fine))
@@ -146,7 +162,7 @@ def classify_modes(
     best = overlap.argmax(1)
     f_b, y_b = f_f[best], y_f[best]
     peak = np.argmax((np.abs(y_b) ** 2).sum(-1), axis=1)
-    fine_geo = geo.interpolate(jnp.arange(1, n + 1) / (n + 1))
+    fine_geo = _nodes(geo, n)
     branches = np.asarray(continuum(fine_geo, harmonics, density, options.get("ntheta", 32), options.get("nzeta", 32)))[peak]
     lower = np.where(branches <= f_b[:, None], branches, 0.0).max(1)
     upper = np.where(branches >= f_b[:, None], branches, np.inf).min(1)
@@ -258,7 +274,7 @@ def design_geometry(offsets: Any, design: Design) -> Geometry:
 def _reject(x: jax.Array, status: Status, omega2: jax.Array) -> jax.Array:
     """``x``, NaN (value and tangent) unless the solve ``converged`` and its selection ``gap`` exceeds ``1e-8 max|omega^2|``
     (a smaller gap is a tie, as in :func:`fax.eigen.targeted_eigenpairs`; plan rule 3)."""
-    return x + jnp.where(status.converged & (status.gap > 1e-8 * jnp.max(jnp.abs(omega2))), 0.0, jnp.nan)
+    return x + jnp.where(selected(status.converged, status.gap, omega2), 0.0, jnp.nan)
 
 
 def geometry_frequencies(geo: Geometry, design: Design, mode_count: int = 3) -> tuple[jax.Array, Status]:
@@ -270,10 +286,9 @@ def geometry_frequencies(geo: Geometry, design: Design, mode_count: int = 3) -> 
     They carry first-order Hellmann-Feynman derivatives only; use :func:`classify_modes` to decide whether a selected
     mode is a gap mode rather than continuum-like before treating it as one.
     """
-    opts = dict(design.options)
-    target, solver = opts.pop("target_hz", None), {key: opts.pop(key) for key in ("count", "iters", "tol") if key in opts}
-    geo = geo.interpolate(jnp.arange(1, design.nodes + 1) / (design.nodes + 1))
-    F, G = global_matrices(geo, design.harmonics, design.density, **opts)
+    solver, opts = split_solver(design.options)
+    target = opts.pop("target_hz", None)
+    F, G = global_matrices(_nodes(geo, design.nodes), design.harmonics, design.density, **opts)
     if target is None:
         K, M = dense(F), dense(G)
         lam, x = jax.lax.stop_gradient(generalized_eigh(K, M))
@@ -298,9 +313,7 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     ``drive`` goes to :func:`fax.growth_rate`. The rates are NaN unless the solve converged and its selection
     does not split a tied set (``gap > 1e-8 max|omega^2|``).
     """
-    opts = dict(design.options)
-    target, solver = opts.pop("target_hz"), {key: opts.pop(key) for key in ("count", "iters") if key in opts}
-    geo = geo.interpolate(jnp.arange(1, design.nodes + 1) / (design.nodes + 1))
-    ev = eigenmodes(geo, design.harmonics, design.density, target_hz=target, **solver, **opts)
+    geo = _nodes(geo, design.nodes)
+    ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
     rate = lambda w2, y: growth_rate(jnp.sqrt(w2), y, geo, design.harmonics, ions, design.density, **drive)  # noqa: E731
     return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)

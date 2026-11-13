@@ -238,6 +238,17 @@ def _certified_jvp(primals: tuple, tangents: tuple) -> tuple:
     return primals[0], tangents[0] * jnp.where(primals[1], 1.0, jnp.nan)  # a product, so reverse mode also gives NaN
 
 
+def split_solver(options: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split ``options`` into the targeted-solve keys (``count``, ``iters``, ``tol``) and the rest (grid sizes, ``finite_beta``)."""
+    solver = {key: options[key] for key in ("count", "iters", "tol") if key in options}
+    return solver, {key: value for key, value in options.items() if key not in solver}
+
+
+def selected(converged: jax.Array, gap: jax.Array, lam: jax.Array) -> jax.Array:
+    """Whether a targeted selection is differentiable: converged, and a gap above a few ulps (a smaller one is a tie)."""
+    return converged & (gap > 1e-8 * jnp.max(jnp.abs(lam)))
+
+
 def targeted_eigenpairs(
     F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10
 ) -> tuple[jax.Array, jax.Array, Status]:
@@ -249,7 +260,7 @@ def targeted_eigenpairs(
     (smaller gaps are ties).
     """
     r = solvax.generalized_eigenpairs(band(F), band(G), target, count, tol, iters)
-    ok = r.converged & (r.gap > 1e-8 * jnp.max(jnp.abs(r.values)))  # a gap of a few ulps is a tie
+    ok = selected(r.converged, r.gap, r.values)
     status = Status(r.residuals.max(), r.orthogonality, r.iterations, r.converged, r.gap, r.fallback)
     return _certified(r.values, ok), _certified(r.vectors, ok), status
 
@@ -347,8 +358,8 @@ def frequency_hz(
     instead. Both have finite gradients. With a target the result is NaN unless the solve converged to ``tol``.
     ``options`` are ``count``, ``iters`` and ``tol`` for the targeted solve and the grid sizes.
     """
-    solver = {key: options.pop(key) for key in ("count", "iters", "tol") if key in options}
-    F, G = global_matrices(geo, harmonics, density, **options)
+    solver, grid = split_solver(options)
+    F, G = global_matrices(geo, harmonics, density, **grid)
     if target_hz is None:
         mean = eigenvalue_mean(dense(F), dense(G), start, stop)
     else:
