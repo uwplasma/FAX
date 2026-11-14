@@ -244,7 +244,7 @@ def test_sound_is_off_by_default_and_changes_nothing():
 
 @pytest.mark.parametrize("p", [P, 2e5])
 def test_pure_sound_branch_is_the_slow_wave_without_curvature(p):
-    """Cheng & Chance (1986) eq. 13b with K_s = 0: w^2 = k_par^2 c_s^2 B^2/(B^2 + mu0 gamma p), the tube speed c_s v_A/sqrt(c_s^2 + v_A^2)."""
+    """Cheng & Chance (1986) eq. 13b with K_s = 0: w^2 = k_par^2 c_s^2 B^2/(B^2 + mu0 gamma p), the tube speed."""
     q = 2.3  # no rational surface among the harmonics
     geo, h = torus(0.0, q), fax.mode_family((1, 2), 3, 1)
     f = fax.continuum(geo, h, RHO, pressure=p)

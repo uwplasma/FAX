@@ -96,7 +96,8 @@ def sound_coupling(
     The unknown is ``(E_j, c_j)``: the surface displacement potential and ``c = xi_par / |B|``. With the geodesic
     curvature ``kappa_s / 2 = (I d_zeta|B| - G d_theta|B|) / (psi' (G + iota I) |B|)`` the compression is
     ``D = kappa_s E + B.grad c`` and ``B.grad c_j = -i a_j |B|^2 c_j``, ``a_j = (n_j - m_j iota) / (G + iota I)``.
-    The energy ``<|sqrt g_B| gamma p B^2/(B^2 + mu0 gamma p) |D|^2>`` (the factor is 1 at low beta) and the kinetic energy ``rho <|sqrt g_B| |B|^2 |c|^2>`` give the blocks
+    The energy ``<|sqrt g_B| gamma p B^2/(B^2 + mu0 gamma p) |D|^2>`` (the factor is 1 at low beta) and the kinetic
+    energy ``rho <|sqrt g_B| |B|^2 |c|^2>`` give the blocks
     ``(pp, pc, cc)`` of the stiffness (the ``cp`` block is ``pc^H``) and the mass ``mc`` of ``c``.
     """
     GI = geo.G + geo.iota * geo.I
