@@ -271,7 +271,7 @@ def design_state(offsets: Any, design: Design) -> tuple[Any, Any]:
     from vmex.core import implicit
 
     params, config = design_params(offsets, design), design._cache["config"]
-    return _compiled(design, "state", lambda q: (implicit.solve_implicit(q, config), implicit.runtime_from_params(q, config)))(params)
+    return implicit.solve_implicit(params, config), implicit.runtime_from_params(params, config)
 
 
 def design_geometry(offsets: Any, design: Design) -> Geometry:
