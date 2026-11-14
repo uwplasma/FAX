@@ -8,7 +8,7 @@ from .continuum import continuum, continuum_matrices, gap_location, gaps, mass_d
 from .drive import FastIons, growth_rate, ion_landau_damping
 from .eigen import eigenmodes, eigenvalue_mean, frequency_hz, global_matrices
 from .geometry import Geometry, circular_torus, from_vmec_input, from_wout, read_boozmn, surface_grid
-from .io import load, run
+from .io import enable_cache, load, run
 from .objectives import (
     ModeClass,
     classify_modes,
@@ -59,6 +59,7 @@ __all__ = [
     "global_matrices",
     "growth_rate",
     "ion_landau_damping",
+    "enable_cache",
     "load",
     "mass_density",
     "mode_family",

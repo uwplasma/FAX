@@ -297,6 +297,24 @@ def _eigenvalue_mean_jvp(start: int, stop: int, primals: tuple, tangents: tuple)
     return jnp.mean(lam), jnp.mean(jnp.real(d))
 
 
+@partial(jax.custom_jvp, nondiff_argnums=(2,))
+def lowest_eigenvalues(K: jax.Array, M: jax.Array, count: int) -> jax.Array:
+    """The ``count`` lowest dense generalized eigenvalues, one by one: :func:`eigenvalue_mean` of each, in a single solve.
+
+    As there, first derivatives are exact and a repeated eigenvalue gives NaN second derivatives.
+    """
+    return generalized_eigh(K, M)[0][:count]
+
+
+@lowest_eigenvalues.defjvp
+def _lowest_eigenvalues_jvp(count: int, primals: tuple, tangents: tuple) -> tuple[jax.Array, jax.Array]:
+    (K, M), (dK, dM) = primals, tangents
+    lam, x = generalized_eigh(K, M)
+    lam, x = lam[:count], x[:, :count]
+    d = jnp.einsum("ik,ij,jk->k", jnp.conj(x), dK, x) - lam * jnp.einsum("ik,ij,jk->k", jnp.conj(x), dM, x)
+    return lam, jnp.real(d)
+
+
 def _root(x: jax.Array) -> jax.Array:
     """``sqrt(max(x, 0))`` with a finite (zero) gradient at ``x <= 0``; NaN propagates."""
     return jnp.where(x <= 0, 0.0, jnp.sqrt(jnp.where(x <= 0, 1.0, x)))

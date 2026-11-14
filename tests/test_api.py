@@ -90,15 +90,35 @@ def test_cli_run_without_plot_writes_results_only(tmp_path, capsys):
     assert not list((tmp_path / "out").glob("*.png"))
 
 
-def test_cli_cache_flag_sets_the_compilation_cache_dir(tmp_path):
+@pytest.fixture(autouse=True)
+def cache_state(tmp_path, monkeypatch):
+    """Isolate the process-wide compilation-cache config (and ``~``) from the test."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from jax._src import compilation_cache
+
+    before = jax.config.jax_compilation_cache_dir
+    yield
+    jax.config.update("jax_compilation_cache_dir", before)
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+    compilation_cache.reset_cache()  # else the worker keeps writing every later compile into the deleted temp directory
+
+
+def test_cli_caches_compilations_by_default_and_on_request(tmp_path, cache_state):
     case = tmp_path / "case.toml"
     case.write_text('[run]\noutput = "out"\nntheta = 32\nnzeta = 4\n')
-    try:
-        assert main(["run", str(case), "--cache", str(tmp_path / "jit")]) == 0
-        assert jax.config.jax_compilation_cache_dir == str(tmp_path / "jit")
-    finally:
-        jax.config.update("jax_compilation_cache_dir", None)
-        jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+    jax.config.update("jax_compilation_cache_dir", None)
+    assert main(["run", str(case), "--no-cache"]) == 0
+    assert jax.config.jax_compilation_cache_dir is None
+    assert main(["run", str(case)]) == 0
+    assert jax.config.jax_compilation_cache_dir == str(tmp_path / ".cache" / "fax" / "jax")
+    assert main(["run", str(case), "--cache", str(tmp_path / "jit")]) == 0
+    assert jax.config.jax_compilation_cache_dir == str(tmp_path / "jit")
+
+
+def test_enable_cache_respects_a_user_set_directory(tmp_path, cache_state):
+    jax.config.update("jax_compilation_cache_dir", str(tmp_path / "mine"))
+    assert fax.enable_cache() == str(tmp_path / "mine")
+    assert fax.enable_cache(tmp_path / "other") == str(tmp_path / "other")
 
 
 def test_geometry_source_is_validated():
