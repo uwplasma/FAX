@@ -316,7 +316,7 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     geo = _nodes(geo, design.nodes)
     ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
     rate = lambda w2, y: growth_rate(jnp.sqrt(w2), y, geo, design.harmonics, ions, design.density, **drive)  # noqa: E731
-    return _reject(jax.lax.map(lambda a: rate(*a), (ev.omega2[:mode_count], ev.structures[:mode_count])), ev.status, ev.omega2)
+    return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)
 
 
 def _gap_type(dm: int, dn: int) -> str:
