@@ -94,10 +94,13 @@ def test_cli_run_without_plot_writes_results_only(tmp_path, capsys):
 def cache_state(tmp_path, monkeypatch):
     """Isolate the process-wide compilation-cache config (and ``~``) from the test."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    from jax._src import compilation_cache
+
     before = jax.config.jax_compilation_cache_dir
     yield
     jax.config.update("jax_compilation_cache_dir", before)
     jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+    compilation_cache.reset_cache()  # else the worker keeps writing every later compile into the deleted temp directory
 
 
 def test_cli_caches_compilations_by_default_and_on_request(tmp_path, cache_state):
