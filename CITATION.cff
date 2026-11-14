@@ -13,7 +13,7 @@ abstract: >-
 repository-code: "https://github.com/uwplasma/fax"
 url: "https://fax.readthedocs.io"
 license: MIT
-version: 1.0.1
+version: 1.1.0
 keywords:
   - Alfvén eigenmodes
   - fast ions
@@ -21,4 +21,4 @@ keywords:
   - stellarator
   - automatic differentiation
   - plasma physics
-date-released: 2026-10-30
+date-released: 2026-11-13
