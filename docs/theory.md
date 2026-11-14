@@ -149,9 +149,8 @@ $\omega_A = \langle B^2\rangle/((G + \iota I)\sqrt{\mu_0\rho})$.
 
 With `pressure` given, {func}`fax.continuum` adds the acoustic branch and its coupling to the surface displacement through the
 geodesic curvature. The coupled continuum equations are Cheng & Chance (1986, Phys. Fluids 29, 3695), as printed with $\mu_0 = 1$ in
-Bertram, Blackwell & Hole (arXiv:1202.3204, eqs. 9 and 10; the form CONTI solves). Cheng & Chance itself was not available to us. We
-re-extracted those two equations from the PDF image and re-derived them from the ideal-MHD energy below, with the same signs, and
-the result reproduces Winsor's closed form (Tests). With
+Bertram, Blackwell & Hole (arXiv:1202.3204, eqs. 9 and 10; the form CONTI solves). Cheng & Chance's own eqs. 13 and 15 and Könies & Eremin (2010) eqs. 6 and 7 agree with them. The
+result reproduces Winsor's closed form (Tests). With
 $\xi_s = \boldsymbol\xi\cdot(\mathbf B\times\nabla s)/|\nabla s|^2$ and $\Delta = \nabla\cdot\boldsymbol\xi$,
 
 $$
@@ -161,7 +160,7 @@ $$
 $$ (continuum-sound)
 
 where $\kappa_s = 2\,\boldsymbol\kappa\cdot(\mathbf B\times\nabla s)/B^2$ is twice the geodesic curvature, $\gamma$ the adiabatic index
-and $p$ the pressure. At low $\beta$ the $\mu_0\gamma p/B^2$ term and the $p'$ terms are dropped, as in the rest of the section.
+and $p$ the pressure. The $p'$ terms are dropped, as in the rest of the section. The $\mu_0\gamma p/B^2$ term is kept: eliminating $\nabla\!\cdot\!\boldsymbol\xi_\perp$ replaces $\gamma p$ by $\gamma p B^2/(B^2+\mu_0\gamma p)$ in every sound block below (Cheng & Chance 1986, eqs. 15 and 18), so the uniform-field sound branch is the tube speed $c_s v_A/\sqrt{c_s^2+v_A^2}$.
 
 **Derivation of the Hermitian form.** At low $\beta$ and large radial wavenumber $k_s$ the displacement is $\boldsymbol\xi_\perp = i k_s\,E\,\mathbf B\times\nabla s/B^2$
 (so $\xi_s = ik_sE$) plus $\xi_\parallel = i k_s\,B\,c$. Since $\boldsymbol\kappa = \nabla_\perp B/B$ and $\nabla\cdot\boldsymbol\xi_\perp = -2\boldsymbol\kappa\cdot\boldsymbol\xi_\perp$
@@ -174,17 +173,17 @@ $$ (kappa-s)
 
 because $\nabla s\cdot(\mathbf B\times\nabla B) = (I\,\partial_\zeta B - G\,\partial_\theta B)/\sqrt g$ and $\sqrt g = \psi'(G+\iota I)/B^2$. The overall sign
 of $\kappa_s$ depends on the orientation of $\sqrt g$ and drops out of the spectrum ($E\to-E$). The energy is
-$\delta W - \omega^2 T$ with $\delta W = \tfrac12\int[\,|\nabla s|^2|\mathbf B\cdot\nabla E|^2/(\mu_0 B^2) + \gamma p|D|^2]$ and $T = \tfrac12\int\rho[\,|\nabla s|^2|E|^2/B^2 + B^2|c|^2]$,
+$\delta W - \omega^2 T$ with $\delta W = \tfrac12\int[\,|\nabla s|^2|\mathbf B\cdot\nabla E|^2/(\mu_0 B^2) + \gamma_B p|D|^2]$ and $T = \tfrac12\int\rho[\,|\nabla s|^2|E|^2/B^2 + B^2|c|^2]$,
 all $\propto k_s^2$, so $k_s$ cancels. Varying $c^*$ gives the second of {eq}`continuum-sound` after elimination of $c$, and varying $E^*$ the first.
 Expanding in the harmonics $e_j$ of $E$ and $c$ with $\mathbf B\cdot\nabla(c_je_j) = -i\,a_jB^2c_je_j$, $a_j = (n_j - m_j\iota)/(G+\iota I)$, gives the Hermitian pencil
 $K x = \omega^2 M x$ on $x = (E_j, c_j)$ of size $2H$:
 
 $$
-K = \begin{pmatrix} K_A + \gamma p\langle 4J\hat\kappa^2 e_i^*e_j\rangle & -2i\gamma p\,a_j\langle J\hat\kappa B^2 e_i^*e_j\rangle \\ \text{h.c.} & \gamma p\,a_ia_j\langle J B^4 e_i^*e_j\rangle\end{pmatrix},\qquad
+K = \begin{pmatrix} K_A + \langle 4\gamma_Bp\,J\hat\kappa^2 e_i^*e_j\rangle & -2i\,a_j\langle \gamma_Bp\,J\hat\kappa B^2 e_i^*e_j\rangle \\ \text{h.c.} & a_ia_j\langle \gamma_Bp\,J B^4 e_i^*e_j\rangle\end{pmatrix},\qquad
 M = \begin{pmatrix} M_A & 0 \\ 0 & \rho\langle J B^2 e_i^*e_j\rangle\end{pmatrix},
 $$ (sound-pencil)
 
-with $J = |\sqrt g_B|$, $\hat\kappa = \kappa_s/2$, $K_A$ and $M_A$ the matrices of {eq}`continuum-galerkin`, and $\psi'$ from
+with $\gamma_B p = \gamma p/(1+\mu_0\gamma p/B^2)$, $J = |\sqrt g_B|$, $\hat\kappa = \kappa_s/2$, $K_A$ and $M_A$ the matrices of {eq}`continuum-galerkin`, and $\psi'$ from
 $\langle|\sqrt g|B^2\rangle/(G+\iota I)$ of the embedding. The mass $M$ stays positive definite, so the Cholesky solver of
 {func}`fax.continuum` is unchanged. For $n = 0$ include $\pm m$ ({func}`fax.mode_family` with `m_min < 0`): $\kappa_s\propto\sin\theta$
 couples $E_0$ to both $c_{\pm1}$. `pressure` (Pa, scalar or one value per surface) and `gamma` (default 5/3) are new keywords of
