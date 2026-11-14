@@ -242,11 +242,15 @@ def test_sound_is_off_by_default_and_changes_nothing():
     assert fax.continuum(geo, h, RHO, pressure=P).shape == (3, 2 * len(h))
 
 
-def test_pure_sound_branch_without_curvature():
+@pytest.mark.parametrize("p", [P, 2e5])
+def test_pure_sound_branch_is_the_slow_wave_without_curvature(p):
+    """Cheng & Chance (1986) eq. 13b with K_s = 0: w^2 = k_par^2 c_s^2 B^2/(B^2 + mu0 gamma p), the tube speed c_s v_A/sqrt(c_s^2 + v_A^2)."""
     q = 2.3  # no rational surface among the harmonics
     geo, h = torus(0.0, q), fax.mode_family((1, 2), 3, 1)
-    f = fax.continuum(geo, h, RHO, pressure=P)
-    sound = jnp.sort(CS * jnp.abs(h[:, 1] - h[:, 0] / q) / R0 / (2 * jnp.pi))
+    f = fax.continuum(geo, h, RHO, pressure=p)
+    cs2 = GAMMA * p / RHO
+    tube = jnp.sqrt(cs2 / (1 + 4e-7 * jnp.pi * GAMMA * p / B0**2))
+    sound = jnp.sort(tube * jnp.abs(h[:, 1] - h[:, 0] / q) / R0 / (2 * jnp.pi))
     exact = jnp.concatenate([jnp.broadcast_to(sound, (3, len(h))), fax.continuum(geo, h, RHO)], 1)  # the two halves decouple
     np.testing.assert_allclose(f, jnp.sort(exact, 1), rtol=1e-9, atol=1e-6)
 
