@@ -241,6 +241,14 @@ def prepare_design(
     )
 
 
+def _compiled(design: Design, key: Any, function: Any) -> Any:
+    """``jax.jit(function)`` kept on the design: one compiled program per stage, reused by every call and gradient."""
+    cache = design._cache.setdefault("jit", {})
+    if key not in cache:
+        cache[key] = jax.jit(function)
+    return cache[key]
+
+
 def design_params(offsets: Any, design: Design) -> Any:
     """vmex ``ImplicitParams`` of the boundary ``input + offsets``."""
     params = design._cache["params"]
@@ -268,7 +276,7 @@ def design_state(offsets: Any, design: Design) -> tuple[Any, Any]:
 
 def design_geometry(offsets: Any, design: Design) -> Geometry:
     """Half-mesh Boozer geometry of the boundary ``input + offsets`` (traceable in ``offsets``)."""
-    return state_geometry(*design_state(offsets, design), design)
+    return _compiled(design, "geometry", lambda s, r: state_geometry(s, r, design))(*design_state(offsets, design))
 
 
 def _reject(x: jax.Array, status: Status, omega2: jax.Array) -> jax.Array:
@@ -302,7 +310,8 @@ def geometry_frequencies(geo: Geometry, design: Design, mode_count: int = 3) -> 
 
 def design_frequencies(offsets: Any, design: Design, mode_count: int = 3) -> tuple[jax.Array, Status]:
     """``boundary offsets -> vmex -> booz_xform_jax -> FE nodes -> (frequencies in Hz, Status)``, differentiable (first order)."""
-    return geometry_frequencies(design_geometry(offsets, design), design, mode_count)
+    run = _compiled(design, ("frequencies", mode_count), lambda g: geometry_frequencies(g, design, mode_count))
+    return run(design_geometry(offsets, design))
 
 
 def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_count: int = 3, **drive: Any) -> jax.Array:
