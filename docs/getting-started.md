@@ -2,7 +2,7 @@
 
 ## Five minutes
 
-1. Install: `pip install alfvex` (version 1.0.1 on PyPI; the import name is `fax`).
+1. Install: `pip install alfvex` (version 1.1.0 on PyPI; the import name is `fax`).
 2. Run the quickstart below. It needs no data file and prints the TAE gap, the modes inside it and a gradient.
 3. Run a case from a checkout: `fax run examples/ctok_continuum.toml --plot --cache`. It writes `results.npz`, `case.json` and
    `continuum.png` to the case's output folder (relative to the case file); `--cache` keeps JAX compilations on disk, so a second run starts faster.

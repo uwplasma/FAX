@@ -13,7 +13,7 @@ archive we know of; a blank means we do not know and have left it out.
 
 | Code | Geometry | Model | Fast-ion drive | Damping | Differentiable | Language, hardware | Public | Status |
 |---|---|---|---|---|---|---|---|---|
-| FAX | 3-D, Boozer coordinates from VMEC | Continuum (STELLGAP form); reduced ideal-MHD global modes (AE3D weak form), restricted finite-$\beta$ terms | Perturbative, zero orbit width, passing ions | None computed; an external $\gamma_d$ can be subtracted | Yes: eigenvalues, drive and the VMEC boundary through vmex | Python, JAX; CPU, GPU not benchmarked | MIT | Active; 1.0.1 on PyPI as `alfvex` |
+| FAX | 3-D, Boozer coordinates from VMEC | Continuum (STELLGAP form); reduced ideal-MHD global modes (AE3D weak form), restricted finite-$\beta$ terms | Perturbative, zero orbit width, passing ions | None computed; an external $\gamma_d$ can be subtracted | Yes: eigenvalues, drive and the VMEC boundary through vmex | Python, JAX; CPU, GPU not benchmarked | MIT | Active; 1.1.0 on PyPI as `alfvex` |
 | STELLGAP | 3-D, Boozer | Low-$\beta$ continuum on each surface (Spong et al. 2003) | None | Continuum structure only | No | Fortran | ORNL-Fusion on GitHub | Last updated 2025 |
 | AE3D | 3-D, Boozer | Reduced ideal-MHD global modes, clustered frequency analysis (Spong et al. 2010) | None | None | No | Fortran | ORNL-Fusion; last updated 2019 | Not under active development |
 | FAR3D | 3-D | Reduced MHD with a gyrofluid energetic-particle model (Varela et al. 2024) | Gyrofluid | Via the gyrofluid closure | No | | No public repository | |
