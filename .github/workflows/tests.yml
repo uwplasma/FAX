@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "0 4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -37,10 +39,15 @@ jobs:
     name: Python ${{ matrix.python-version }}
     runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.python-version == '3.12')) && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 60
+    env:
+      JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
+      JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS: "0"
+      JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES: "0"
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        # Pull requests run 3.10 and 3.13 as a short smoke and 3.12 in full; main, nightly and manual runs use every version.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10","3.12","3.13"]' || '["3.10","3.11","3.12","3.13"]') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -50,13 +57,32 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: false
       - run: uv venv && uv pip install -e ".[test]" pytest-xdist
-      - run: .venv/bin/python -m pytest -q -n 3
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .jax-cache
+          key: jax-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: jax-${{ runner.os }}-py${{ matrix.python-version }}-
+      - run: .venv/bin/python -m pytest -q -n 3 ${{ github.event_name == 'pull_request' && matrix.python-version != '3.12' && '-x tests/test_api.py tests/test_gpu.py' || '' }}
+
+  # Keeps the required "Python 3.11" check reporting on pull requests, which skip that version.
+  python-311-main-only:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    name: Python 3.11
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "Python 3.11 is tested on main and nightly"
 
   oldest-jax:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # Skipped on pull requests (a skipped required check passes); main and nightly run it.
+    if: github.event_name != 'pull_request'
     name: Python 3.10, JAX 0.4.38
     runs-on: ${{ (github.event_name != 'pull_request') && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 60
+    env:
+      JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
+      JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS: "0"
+      JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -66,6 +92,11 @@ jobs:
           python-version: "3.10"
           enable-cache: false
       - run: uv venv && uv pip install -e ".[test]" pytest-xdist "jax==0.4.38" "jaxlib==0.4.38" "solvax==0.36.0" "numpy<2"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .jax-cache
+          key: jax-${{ runner.os }}-oldest-jax-${{ hashFiles('pyproject.toml') }}
+          restore-keys: jax-${{ runner.os }}-oldest-jax-
       - run: .venv/bin/python -m pytest -q -n 3
 
   wheel:
@@ -101,6 +132,10 @@ jobs:
     name: Lint, vmex path and coverage
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 90
+    env:
+      JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
+      JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS: "0"
+      JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -110,6 +145,11 @@ jobs:
           python-version: "3.12"
           enable-cache: false
       - run: uv venv && uv pip install -e ".[dev,vmex]"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .jax-cache
+          key: jax-${{ runner.os }}-full-${{ hashFiles('pyproject.toml') }}
+          restore-keys: jax-${{ runner.os }}-full-
       - run: .venv/bin/ruff check . && .venv/bin/ruff format --check .
       - run: uvx cffconvert --validate
       - run: .venv/bin/python -m coverage run --branch --source=src/fax -m pytest -q -m 'not scheduled'
