@@ -96,7 +96,8 @@ def sound_coupling(
     The unknown is ``(E_j, c_j)``: the surface displacement potential and ``c = xi_par / |B|``. With the geodesic
     curvature ``kappa_s / 2 = (I d_zeta|B| - G d_theta|B|) / (psi' (G + iota I) |B|)`` the compression is
     ``D = kappa_s E + B.grad c`` and ``B.grad c_j = -i a_j |B|^2 c_j``, ``a_j = (n_j - m_j iota) / (G + iota I)``.
-    The energy ``gamma p <|sqrt g_B| |D|^2>`` and the kinetic energy ``rho <|sqrt g_B| |B|^2 |c|^2>`` give the blocks
+    The energy ``<|sqrt g_B| gamma p B^2/(B^2 + mu0 gamma p) |D|^2>`` (the factor is 1 at low beta) and the kinetic
+    energy ``rho <|sqrt g_B| |B|^2 |c|^2>`` give the blocks
     ``(pp, pc, cc)`` of the stiffness (the ``cp`` block is ``pc^H``) and the mass ``mc`` of ``c``.
     """
     GI = geo.G + geo.iota * geo.I
@@ -105,10 +106,11 @@ def sound_coupling(
     a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / GI[:, None]
     J, B = jnp.abs(grid.jacobian), grid.B
     gp = (gamma * jnp.broadcast_to(jnp.asarray(pressure, dtype=float), geo.s.shape))[:, None, None]
+    gp = gp / (1.0 + MU0 * gp / B**2)  # the stiff compressional Alfven response: gamma p B^2 / (B^2 + mu0 gamma p) (Cheng & Chance eq. 15)
     mean = lambda f: angle_mean(f, h)  # noqa: E731
-    pp = gp * mean(4.0 * J * cur**2)
-    pc = -2j * gp * a[:, None, :] * mean(J * cur * B**2)
-    cc = gp * a[:, :, None] * a[:, None, :] * mean(J * B**4)
+    pp = mean(4.0 * gp * J * cur**2)
+    pc = -2j * a[:, None, :] * mean(gp * J * cur * B**2)
+    cc = a[:, :, None] * a[:, None, :] * mean(gp * J * B**4)
     mc = rho[:, None, None] * mean(J * B**2)
     return pp, pc, cc, mc
 
