@@ -17,27 +17,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Cheap hosted job: the only one that runs on fork pull requests.
   smoke:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Lint and smoke
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[test]" ruff
-      - run: ruff check . && ruff format --check .
-      - run: python -m pytest -q tests/test_gpu.py
+          enable-cache: false
+      - run: uv venv && uv pip install -e ".[test]" ruff
+      - run: .venv/bin/ruff check . && .venv/bin/ruff format --check .
+      - run: .venv/bin/python -m pytest -q tests/test_gpu.py
 
   tests:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Python ${{ matrix.python-version }}
-    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.python-version == '3.12')) && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 60
     env:
       JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pull requests run 3.10 and 3.13 as a short smoke and 3.12 in full; main, nightly and manual runs use every version.
+        # Pull requests run a short smoke on each version (the coverage job runs the full suite); main, nightly and manual runs test every version in full.
         python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10","3.12","3.13"]' || '["3.10","3.11","3.12","3.13"]') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -62,13 +62,13 @@ jobs:
           path: .jax-cache
           key: jax-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: jax-${{ runner.os }}-py${{ matrix.python-version }}-
-      - run: .venv/bin/python -m pytest -q -n 3 ${{ github.event_name == 'pull_request' && matrix.python-version != '3.12' && '-x tests/test_api.py tests/test_gpu.py' || '' }}
+      - run: .venv/bin/python -m pytest -q -n 3 ${{ github.event_name == 'pull_request' && '-x tests/test_api.py tests/test_gpu.py' || '' }}
 
   # Keeps the required "Python 3.11" check reporting on pull requests, which skip that version.
   python-311-main-only:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     name: Python 3.11
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 5
     steps:
       - run: echo "Python 3.11 is tested on main and nightly"
@@ -77,7 +77,7 @@ jobs:
     # Skipped on pull requests (a skipped required check passes); main and nightly run it.
     if: github.event_name != 'pull_request'
     name: Python 3.10, JAX 0.4.38
-    runs-on: ${{ (github.event_name != 'pull_request') && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 60
     env:
       JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
@@ -102,7 +102,7 @@ jobs:
   wheel:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Installed wheel
-    runs-on: ${{ (github.event_name != 'pull_request') && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -130,7 +130,7 @@ jobs:
   full:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Lint, vmex path and coverage
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 90
     env:
       JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
