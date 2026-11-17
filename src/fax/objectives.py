@@ -540,7 +540,7 @@ def summary(
                 why = "resolved on fewer than three surfaces"
                 continue
             if (np.abs(np.diff(xj, 2, axis=0)) ** 2).sum() > 0.5 * p.sum():
-                why = "oscillating on the radial grid (too few surfaces)"
+                why = "oscillating on the radial grid"
                 continue
             pair = [int(np.flatnonzero((hf == q).all(1))[0]) for q in np.asarray(g["harmonics"], dtype=float)]
             if np.abs(xj[:, pair]).max(0).min() < 0.2 * np.abs(xj).max():
