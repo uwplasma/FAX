@@ -92,7 +92,7 @@ def plot_summary(summary: dict, path: str | Path, *, colors: int = 64, dpi: int 
     else:
         c = mode["structure"]
         big = np.abs(c).max()
-        for j in [j for j in range(c.shape[1]) if np.abs(c[:, j]).max() > 0.1 * big]:
+        for j in [j for j in np.argsort(-np.abs(c).max(0))[:6] if np.abs(c[:, j]).max() > 0.1 * big]:  # the six largest
             a1.plot(r, c[:, j] / big, label="({},{})".format(*mode["harmonics"][j]))
         a1.axhline(0, color="0.7", lw=0.6)
         g = summary["gaps"][mode["gap"]]

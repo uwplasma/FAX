@@ -178,6 +178,30 @@ def test_mode_families_split_uncoupled_harmonics():
     assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(stell, h)] == [[0, 3], [1], [-1, 2]]
 
 
+def test_alfven_harmonics_follow_the_sign_of_iota_and_conjugate_families_agree():
+    """Resonant branches need n of the sign of iota (k_par ~ n - m iota); in a stellarator every family N = 0 .. nfp - 1
+    enters with m >= 0, and the conjugate harmonics (-m, -n) of a family give exactly its continuum."""
+    tok = fax.circular_torus(iota=0.6, epsilon_B=0.2)
+    assert set(fax.alfven_harmonics(tok, 4)[:, 1]) == {1, 2}
+    assert set(fax.alfven_harmonics(replace(tok, iota=-tok.iota), 4)[:, 1]) == {-1, -2}
+    geo = fax.circular_torus(iota=-0.7 - 0.2 * jnp.linspace(0, 1, 24), epsilon_B=0.2, nfp=3)
+    geo = replace(geo, xn=geo.xn.at[2].set(3.0))  # a helical harmonic of the boundary shift
+    h = fax.alfven_harmonics(geo, 6)
+    assert sorted({int(n) % 3 for n in h[:, 1]}) == [0, 1, 2] and h[:, 1].min() < -6 and not (h == 0).all(1).any()
+    one = h[np.mod(h[:, 1], 3) == 1]
+    rho = fax.mass_density(1e19, 2.0)
+    f1, f2 = (np.asarray(fax.continuum(geo, x, rho, ntheta=32, nzeta=64)) for x in (one, -one))
+    np.testing.assert_allclose(f1, f2, rtol=1e-9, atol=1e-6 * f1.max())
+
+
+def test_gap_names_follow_spong_table_one():
+    """TAE, EAE and NAE for dm = 1, 2, >= 3 at dn = 0; MAE for dm = 0; HAE with both; BAE with a sound branch."""
+    from fax.objectives import _gap_type
+
+    assert [_gap_type(dm, dn) for dm, dn in ((1, 0), (2, 0), (3, 0), (0, 1), (2, 1))] == ["TAE", "EAE", "NAE", "MAE", "HAE"]
+    assert _gap_type(1, 0, sound=True) == "BAE"
+
+
 def test_summary_rejections_and_sound(tmp_path, monkeypatch):
     """An empty window and modes outside the band, on one surface, in one harmonic, pinned to the edge or crossing the
     continuum each give a reason;
@@ -196,13 +220,18 @@ def test_summary_rejections_and_sound(tmp_path, monkeypatch):
 
         return run
 
+    def bump(center, width, floor=0.0):
+        return lambda m: jnp.ones_like(m.structures) * (floor + jnp.exp(-(((m.s - center) / width) ** 2)))[None, :, None]
+
     sheared = fax.circular_torus(s=geo.s, major_radius=10.0, B0=3.0, iota=0.3 + 1.2 * geo.s, epsilon_B=0.15)  # local gaps
     for g, kw, why in (
         (geo, dict(scale=3.0), "outside the band"),
         (geo, dict(shape=lambda m: jnp.zeros_like(m.structures).at[:, 16].set(1.0)), "fewer than three"),
         (geo, dict(shape=lambda m: m.structures.at[..., 2:].set(0.0)), "both harmonics"),  # (1,1) alone
+        (geo, dict(shape=lambda m: m.structures * (-1.0) ** jnp.arange(32)[None, :, None]), "oscillating"),
         (geo, dict(shape=lambda m: jnp.ones_like(m.structures) * jnp.exp(10 * (m.s - 1))[None, :, None]), "pinned"),
-        (sheared, dict(shape=lambda m: jnp.ones_like(m.structures)), "crossing"),
+        (sheared, dict(shape=bump(0.3, 0.15, floor=1.0)), "crossing"),  # peaked in the gap, tails everywhere
+        (sheared, dict(shape=bump(0.85, 0.08)), "away"),
     ):
         monkeypatch.setattr(fax.objectives, "eigenmodes", patched(**kw))
         out = fax.summary(g, h, rho, **opts)

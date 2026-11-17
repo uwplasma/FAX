@@ -333,19 +333,49 @@ def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
     if sound:
         return "BAE"
     if dn == 0:
-        return {1: "TAE", 2: "EAE"}.get(dm, "other")
+        return {0: "other", 1: "TAE", 2: "EAE"}.get(dm, "NAE")  # NAE: |dm| >= 3 (Spong et al. 2003, table I)
     return "MAE" if dm == 0 else "HAE"
+
+
+def _axisymmetric(geo: Geometry) -> bool:
+    """True when no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle."""
+    spectra = np.abs(np.concatenate([np.asarray(getattr(geo, k)) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")], -1))
+    return bool(spectra[:, np.tile(np.asarray(geo.xn), 6) != 0].max(initial=0.0) <= 1e-9 * spectra.max())
 
 
 def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
     """Row indices of ``harmonics`` that the equilibrium couples: one group per ``n`` when the geometry is axisymmetric,
     one per ``n mod nfp`` otherwise. Harmonics of different groups never couple, so their continua are separate spectra."""
     h = np.asarray(harmonics, dtype=int)
-    spectra = np.abs(np.concatenate([np.asarray(getattr(geo, k)) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")], -1))
-    xn = np.tile(np.asarray(geo.xn), 6)
-    axisymmetric = spectra[:, xn != 0].max(initial=0.0) <= 1e-9 * spectra.max()
-    key = h[:, 1] if axisymmetric else np.mod(h[:, 1], geo.nfp)
+    key = h[:, 1] if _axisymmetric(geo) else np.mod(h[:, 1], geo.nfp)
     return [np.flatnonzero(key == k) for k in np.unique(key)]
+
+
+def alfven_harmonics(geo: Geometry, m_max: int = 12, width: float | None = None) -> np.ndarray:
+    """A harmonic set ``(m, n)``, ``0 <= m <= m_max``, holding the resonant branches of each distinct mode family.
+
+    Axisymmetric: ``n = 1, 2`` with the sign of the rotational transform (``k_par ~ n - m iota`` vanishes only there).
+    Otherwise every family ``N = 0 .. nfp - 1`` with each ``n = N mod nfp`` in ``[iota_min m - W, iota_max m + W]``,
+    ``W = width`` (default ``2 max(2, nfp)``, in units of ``v_A / R``), as in Paul et al. (2025, section 5.1); both signs
+    of ``n`` thereby enter, and a negative ``iota`` selects negative ``n``. With ``m >= 0`` only, family ``nfp - N`` holds
+    the resonant branches that family ``N`` has at ``m < 0`` (its complex conjugate), so all ``N`` are kept. ``(0, 0)`` is
+    left out.
+    """
+    iota = np.asarray(geo.iota, dtype=float)
+    lo, hi = iota.min(), iota.max()
+    if _axisymmetric(geo):
+        sign = 1 if np.mean(iota) >= 0 else -1
+        pairs = [(m, sign * n) for n in (1, 2) for m in range(m_max + 1)]
+    else:
+        nfp, w = geo.nfp, 2 * max(2, geo.nfp) if width is None else width
+        pairs = [
+            (m, n)
+            for N in range(nfp)
+            for m in range(m_max + 1)
+            for n in range(int(np.floor(min(lo * m, hi * m) - w)), int(np.ceil(max(lo * m, hi * m) + w)) + 1)
+            if (n - N) % nfp == 0 and (m, n) != (0, 0)
+        ]
+    return np.array(sorted(set(pairs)), dtype=float)
 
 
 def _local_gaps(f: np.ndarray, min_width: float, edge: int) -> list[tuple[int, int, int, int, float, float]]:
@@ -405,17 +435,23 @@ def summary(
 
     The harmonics are split into the families the equilibrium couples (:func:`mode_families`) and each family's continuum
     is searched for **local gaps**: avoided crossings of adjacent branches, each with a frequency band and the radial range
-    ``s_range`` where that band is open. Gaps are typed from the two harmonics that dominate the branches at the crossing:
-    TAE (``dm = 1``), EAE (``dm = 2``), MAE (``dm = 0``), HAE (``dn != 0``), BAE (a sound branch), ``other`` otherwise.
-    Gaps whose harmonics include the highest ``|m|`` of their family, or that reach above the lowest branch dominated by it,
-    are truncation artefacts and dropped, as are gaps centred below ``0.05 f_A`` or narrower than ``0.01 f_A``.
+    ``s_range`` where that band is open. Each branch is labelled by its own dominant harmonic at the crossing, and a gap is
+    kept only if the two harmonics cross there: ``k_par R = n - m iota`` of opposite signs and magnitudes within a factor
+    two (Spong et al. 2003), one gap per pair. Gaps are typed from the two harmonics:
+    TAE (``dm = 1``), EAE (``dm = 2``), NAE (``|dm| >= 3``), MAE (``dm = 0``), HAE (``dn != 0``), and BAE when either branch
+    holds a tenth of its energy in the sound displacement (the sound continuum splits one Alfven harmonic).
+    Gaps whose harmonics include the highest ``|m|`` of their family are truncation artefacts and dropped (the resonant
+    branches of every ``m``, ``m_max`` included, reach zero at their rational surfaces, so a frequency cut cannot mark the
+    truncation), as are gaps centred below ``0.05 f_A`` or narrower than ``0.01 f_A``.
     ``window = (low, high)`` in kHz (default ``(0, max(2, nfp) f_A)``, which holds the TAE, EAE and HAE gaps) keeps gaps
     whose centre lies inside. The ``max_gaps`` relatively widest are returned, widest first, BAE gaps last.
 
     For each gap other than BAE in turn, the ``count`` global modes of that family nearest the gap centre are solved
     (:func:`fax.eigenmodes`). A mode is kept if its frequency is inside the band, it spans at least three surfaces where
-    its power exceeds a tenth of the peak, both harmonics of the gap reach a fifth of its peak amplitude (a gap mode is their
-    coupling; one harmonic alone is a continuum mode), it crosses no shear-Alfven branch where its power exceeds a hundredth of the
+    its power exceeds a tenth of the peak, it is smooth on the radial grid (second differences carry less than half its
+    energy), both harmonics of the gap reach a fifth of its peak amplitude (a gap mode is their
+    coupling; one harmonic alone is a continuum mode), it peaks within 0.1 in ``s`` of the gap's radial range, it crosses no
+    shear-Alfven branch where its power exceeds a hundredth of the
     peak, and its peak lies at least ``edge`` from the axis and the boundary.
     Otherwise ``mode`` is ``None`` and ``mode_reason`` says why.
 
@@ -444,8 +480,6 @@ def summary(
         if pressure is not None:  # BAE gaps only: sound branches cut through the Alfven gaps without closing them
             spectra.append(_spectrum(geometry, hf, rho, pressure, grid))
         mmax = np.abs(hf[:, 0]).max()
-        trunc = spectra[0][0][np.abs(spectra[0][2]) == mmax]
-        f_trunc = trunc.min() if trunc.size and mmax > 0 else np.inf
         families.append(
             dict(
                 harmonics=hf.astype(int).tolist(),
@@ -457,11 +491,15 @@ def summary(
         for with_sound, (f, power, _) in enumerate(spectra):
             for k, i, a, b, low, high in _local_gaps(f, min_width, edge_i):
                 center = 0.5 * (low + high)
-                top = np.argsort(-power[i][:, k : k + 2].sum(1))[:2]
-                sound = bool((top >= H).any())
-                (ma, na), (mb, nb) = hf[top[0] % H], hf[top[1] % H]
-                if sound != bool(with_sound) or (not sound and (mmax in (abs(ma), abs(mb)) or high > f_trunc)):
+                pk = power[i][:, k : k + 2]
+                sound = bool((pk[H:].sum(0) > 0.1 * pk.sum(0)).any())  # a branch with a tenth of its energy in sound
+                ua, ub = pk[:H].argmax(0)  # each branch's own shear-Alfven harmonic
+                (ma, na), (mb, nb) = hf[ua], hf[ub]
+                if sound != bool(with_sound) or (not sound and (ua == ub or mmax in (abs(ma), abs(mb)))):
                     continue
+                ka, kb = na - ma * iota[i], nb - mb * iota[i]  # k_par R of the two branches
+                if not sound and (ka * kb >= 0 or not 0.5 <= abs(ka / kb) <= 2):
+                    continue  # not two counter-propagating branches meeting: sorted neighbours, no crossing
                 if center < 0.05 * f_alfven or high - low < 0.01 * f_alfven or not window[0] <= center <= window[1]:
                     continue
                 gaps.append(
@@ -478,7 +516,10 @@ def summary(
                         family=fi,
                     )
                 )
-    gaps = sorted(gaps, key=lambda g: (g["type"] == "BAE", -g["width_khz"] / g["center_khz"]))[:max_gaps]
+    widest: dict = {}  # one gap per crossing pair: the relatively widest of its avoided crossings
+    for g in sorted(gaps, key=lambda g: (g["type"] == "BAE", -g["width_khz"] / g["center_khz"])):
+        widest.setdefault((g["family"], *sorted(map(tuple, g["harmonics"]))), g)
+    gaps = list(widest.values())[:max_gaps]
     mode, reasons = None, []
     for gi, g in [(i, g) for i, g in enumerate(gaps) if g["type"] != "BAE"]:  # the eigenmode has no sound coupling
         fam = families[g["family"]]
@@ -498,15 +539,21 @@ def summary(
             if support.sum() < 3:
                 why = "resolved on fewer than three surfaces"
                 continue
+            if (np.abs(np.diff(xj, 2, axis=0)) ** 2).sum() > 0.5 * p.sum():
+                why = "oscillating on the radial grid (too few surfaces)"
+                continue
             pair = [int(np.flatnonzero((hf == q).all(1))[0]) for q in np.asarray(g["harmonics"], dtype=float)]
             if np.abs(xj[:, pair]).max(0).min() < 0.2 * np.abs(xj).max():
                 why = "not carried by both harmonics of the gap"
                 continue
-            if (below[p > 1e-2 * p.max()] != below[i0]).any():  # tails too: a mode cut off at a crossing is continuum-damped
-                why = "crossing the continuum"
+            if not g["s_range"][0] - 0.1 <= peak <= g["s_range"][1] + 0.1:
+                why = "peaked away from the gap"
                 continue
             if not edge < peak < 1 - edge:
                 why = "pinned to the axis or the boundary"
+                continue
+            if (below[p > 1e-2 * p.max()] != below[i0]).any():  # tails too: a mode cut off at a crossing is continuum-damped
+                why = "crossing the continuum"
                 continue
             big = xj.ravel()[np.abs(xj).argmax()]
             c = xj * np.conj(big) / abs(big)
@@ -531,8 +578,9 @@ def summary(
             break
         if mode:
             break
-        reasons.append(f"{g['type']} {g['center_khz']:.0f} kHz: nearest of {count} modes {why}")
-    reason = "" if mode else ("; ".join(reasons) if reasons else "no gap in the window")
+        reasons.append(why)
+    tally = ", ".join(f"{reasons.count(r)} {r}" for r in dict.fromkeys(reasons))
+    reason = "" if mode else (f"{len(reasons)} gaps searched, the nearest of {count} modes: {tally}" if reasons else "no gap in the window")
     n_i, amu = ions if ions else (None, None)
     pick = mode["family"] if mode else (gaps[0]["family"] if gaps else 0)
     return dict(

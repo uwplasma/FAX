@@ -11,6 +11,7 @@ from .geometry import Geometry, circular_torus, from_vmec_input, from_wout, read
 from .io import enable_cache, load, run
 from .objectives import (
     ModeClass,
+    alfven_harmonics,
     classify_modes,
     compression_harmonics,
     continuum_cost,
@@ -70,6 +71,7 @@ __all__ = [
     "run",
     "soft_max",
     "state_geometry",
+    "alfven_harmonics",
     "mode_families",
     "summary",
     "surface_grid",
