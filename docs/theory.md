@@ -145,7 +145,7 @@ operator, so $K$ and $M$ are real and FAX solves them in real arithmetic. A real
 The single-sign list $e_j$ misses the coupling of $(m, n)$ to $(-m', -n')$ through the field harmonic $(m + m', n + n')$, present when
 $2n$ is a multiple of $N_{fp}$ (every family at $N_{fp} = 2$, $n = 0$ in a tokamak). On both signs the problem splits exactly into
 the real cosine sector, STELLGAP's basis, and the sine sector, AE3D's, each the size of the list: `parity=1` or `-1` in
-{func}`fax.continuum_matrices` and {func}`fax.eigen.global_matrices`.
+{func}`fax.continuum_matrices` and {func}`fax.global_matrices`.
 
 **Mode families.** In a stellarator with $N_{fp}$ periods, $n$ couples only to
 $n + kN_{fp}$, so a family is a list `n = [n0, n0 + Nfp, n0 - Nfp, ...]` in
