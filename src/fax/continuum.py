@@ -24,7 +24,7 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 
-from .geometry import Geometry, check, surface_grid
+from .geometry import Geometry, check, surface_grid, symmetric
 
 MU0 = 4.0e-7 * jnp.pi
 AMU = 1.66053906660e-27
@@ -143,7 +143,8 @@ def continuum_matrices(
             "pressure must be a scalar or have one value per surface",
         )
         check(gamma > 0, "gamma must be positive")
-    return _continuum_matrices(geo, grid, h, density, pressure, gamma)
+    KM = _continuum_matrices(geo, grid, h, density, pressure, gamma)
+    return jax.tree_util.tree_map(jnp.real, KM) if symmetric(geo) else KM
 
 
 @jax.jit
