@@ -328,11 +328,55 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)
 
 
-def _gap_type(dm: int, dn: int) -> str:
+def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
     """Name of a gap from the poloidal and toroidal (in field periods) mode-number differences of the coupled harmonics."""
+    if sound:
+        return "BAE"
     if dn == 0:
         return {1: "TAE", 2: "EAE"}.get(dm, "other")
     return "MAE" if dm == 0 else "HAE"
+
+
+def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
+    """Row indices of ``harmonics`` that the equilibrium couples: one group per ``n`` when the geometry is axisymmetric,
+    one per ``n mod nfp`` otherwise. Harmonics of different groups never couple, so their continua are separate spectra."""
+    h = np.asarray(harmonics, dtype=int)
+    spectra = np.abs(np.concatenate([np.asarray(getattr(geo, k)) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")], -1))
+    xn = np.tile(np.asarray(geo.xn), 6)
+    axisymmetric = spectra[:, xn != 0].max(initial=0.0) <= 1e-9 * spectra.max()
+    key = h[:, 1] if axisymmetric else np.mod(h[:, 1], geo.nfp)
+    return [np.flatnonzero(key == k) for k in np.unique(key)]
+
+
+def _local_gaps(f: np.ndarray, min_width: float, edge: int) -> list[tuple[int, int, int, int, float, float]]:
+    """Avoided crossings of adjacent sorted branches ``k, k + 1``: a local minimum of their separation at surface ``i``
+    (at least ``edge`` surfaces from either end) wider than ``min_width`` of its centre. The band is ``[max f_k, min f_k+1]``
+    over the run ``a..b`` of surfaces around ``i``, short of the neighbouring maxima of the separation (the next crossing
+    of the same pair), where it stays at least half as wide as at ``i``.
+    Returns ``(k, i, a, b, low, high)``."""
+    S, found = len(f), []
+    for k in range(f.shape[1] - 1):
+        d = f[:, k + 1] - f[:, k]
+        for i in range(edge, S - edge):
+            if not (d[i] < d[i - 1] and d[i] <= d[i + 1] and d[i] >= min_width * 0.5 * (f[i, k] + f[i, k + 1])):
+                continue  # one minimum per valley of the separation (the first of a flat bottom)
+            peaks = [j for j in range(1, S - 1) if d[j] > d[j - 1] and d[j] >= d[j + 1]]  # the next crossings' territory
+            first, last = max([j for j in peaks if j < i], default=0), min([j for j in peaks if j > i], default=S - 1)
+            a = b = i
+            while a > first and min(f[a - 1 : b + 1, k + 1]) - max(f[a - 1 : b + 1, k]) >= 0.5 * d[i]:
+                a -= 1
+            while b < last and min(f[a : b + 2, k + 1]) - max(f[a : b + 2, k]) >= 0.5 * d[i]:
+                b += 1
+            found.append((k, i, a, b, float(f[a : b + 1, k].max()), float(f[a : b + 1, k + 1].min())))
+    return found
+
+
+def _spectrum(geo: Geometry, h: np.ndarray, rho: Any, pressure: Any, grid: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Sorted continuum (kHz), branch power per unknown and the dominant ``m`` of each branch (NaN for a sound branch)."""
+    w2, x = generalized_eigh(*continuum_matrices(geo, h, rho, pressure=pressure, **grid))
+    power = np.abs(np.asarray(x)) ** 2  # (surfaces, unknowns, branches)
+    dom = np.argmax(power, 1)
+    return np.sqrt(np.maximum(np.asarray(w2), 0.0)) / (2 * np.pi) / 1e3, power, np.where(dom < len(h), h[dom % len(h), 0], np.nan)
 
 
 def summary(
@@ -340,98 +384,168 @@ def summary(
     harmonics: Any,
     mass_density: Any,
     *,
+    pressure: Any = None,
     window: tuple[float, float] | None = None,
     count: int = 4,
     ions: tuple[float, float] | None = None,
     max_gaps: int = 6,
-    min_width: float = 0.02,
+    min_width: float = 0.05,
+    edge: float = 0.05,
     ntheta: int = 32,
     nzeta: int = 32,
     iters: int = 100,
     tol: float = 1e-10,
 ) -> dict[str, Any]:
-    """Global continuum gaps and the global mode inside the widest one, as one plain dictionary (host arrays, not differentiable).
+    """Continuum gaps and a gap eigenmode, as one plain dictionary (host arrays, not differentiable).
 
-    ``mass_density`` is the ion mass density in kg/m^3, as for :func:`fax.continuum` (see :func:`fax.mass_density`); frequencies
-    scale as its inverse square root. ``ions = (n_i, amu)`` only records the number density in m^-3 and the ion mass behind it.
-    ``harmonics`` are ``(m, n)`` pairs, ``n`` a multiple of ``nfp`` (see :func:`fax.mode_family`). ``window = (low, high)`` in kHz
-    keeps the gaps whose centre lies inside.
+    ``mass_density`` is the ion mass density in kg/m^3, a scalar or one value per surface (:func:`fax.mass_density`);
+    ``pressure`` (Pa, scalar or per surface) adds the sound coupling of :func:`fax.continuum` to the drawn continuum and
+    opens BAE gaps; the shear-Alfven gaps, the eigenmode and its continuum check stay without it, since the sound branches
+    cut through those gaps with little coupling. ``ions = (n_i, amu)`` only records what the density was built from.
 
-    A **gap** is a global one: for adjacent sorted branches ``k`` and ``k + 1`` it is the band ``[max_s f_k, min_s f_{k+1}]``,
-    kept if it is non-empty and wider than ``min_width`` of its centre, so that no branch crosses it at any surface. The
-    widest ``max_gaps`` are returned, widest first. Each is typed from the two harmonics that dominate the branch eigenvectors
-    on the surface where the branches are closest: TAE (``dm = 1``), EAE (``dm = 2``), MAE (``dm = 0``, ``dn != 0``), HAE
-    (both nonzero), ``other`` otherwise. The ``count`` global modes nearest the centre of the widest gap are solved
-    (:func:`fax.eigenmodes`; ``iters``, ``tol``, ``ntheta``, ``nzeta``) and the one inside the band nearest its centre is the
-    ``mode``. Without one, ``mode`` is ``None`` and ``mode_reason`` says why.
+    The harmonics are split into the families the equilibrium couples (:func:`mode_families`) and each family's continuum
+    is searched for **local gaps**: avoided crossings of adjacent branches, each with a frequency band and the radial range
+    ``s_range`` where that band is open. Gaps are typed from the two harmonics that dominate the branches at the crossing:
+    TAE (``dm = 1``), EAE (``dm = 2``), MAE (``dm = 0``), HAE (``dn != 0``), BAE (a sound branch), ``other`` otherwise.
+    Gaps whose harmonics include the highest ``|m|`` of their family, or that reach above the lowest branch dominated by it,
+    are truncation artefacts and dropped, as are gaps centred below ``0.05 f_A`` or narrower than ``0.01 f_A``.
+    ``window = (low, high)`` in kHz (default ``(0, max(2, nfp) f_A)``, which holds the TAE, EAE and HAE gaps) keeps gaps
+    whose centre lies inside. The ``max_gaps`` relatively widest are returned, widest first, BAE gaps last.
 
-    Returns ``harmonics``, ``density_kg_m3``, ``density_m3`` and ``ion_mass_amu`` (the last two ``None`` without ``ions``),
-    ``window_khz``, ``gaps`` (``center_khz``, ``width_khz``, ``low_khz``, ``high_khz``, ``s`` and ``iota`` of the closest
-    approach, ``type``, ``harmonics``), ``mode`` (``frequency_khz``, ``peak_s``, ``in_gap``, ``converged``, ``residual``,
-    ``structure`` of shape ``(surfaces, harmonics)``), ``mode_reason`` and ``profiles`` (``s``, ``iota``, ``continuum_khz``),
-    which :func:`fax.plot.plot_summary` draws.
+    For each gap other than BAE in turn, the ``count`` global modes of that family nearest the gap centre are solved
+    (:func:`fax.eigenmodes`). A mode is kept if its frequency is inside the band, it spans at least three surfaces where
+    its power exceeds a tenth of the peak, both harmonics of the gap reach a fifth of its peak amplitude (a gap mode is their
+    coupling; one harmonic alone is a continuum mode), it crosses no shear-Alfven branch where its power exceeds a hundredth of the
+    peak, and its peak lies at least ``edge`` from the axis and the boundary.
+    Otherwise ``mode`` is ``None`` and ``mode_reason`` says why.
+
+    Returns ``harmonics``, density fields, ``alfven_khz`` (``v_A / 2 pi R_0`` on the innermost surface), ``window_khz``,
+    ``gaps`` (``center_khz``, ``width_khz``, ``low_khz``, ``high_khz``, ``s``, ``s_range``, ``iota``, ``type``,
+    ``harmonics``, ``family``), ``mode`` (``frequency_khz``, ``peak_s``, ``support``, ``family``, ``gap``, ``converged``,
+    ``residual``, ``structure`` (phase-aligned, real, shape ``(surfaces, family harmonics)``), ``harmonics``,
+    ``cross_section`` (``R``, ``Z``, ``phi`` at ``zeta = 0``)), ``mode_reason``, ``family`` (the index drawn by
+    :func:`fax.plot.plot_summary`) and ``profiles`` (``s``, ``iota``, ``families``: ``harmonics``, ``continuum_khz``,
+    ``dominant_m``, and ``shear_alfven_khz``, the continuum without sound).
     """
     h = np.asarray(harmonics, dtype=float)
-    rho = jnp.asarray(mass_density)
+    rho = np.asarray(mass_density, dtype=float)
     grid = {"ntheta": ntheta, "nzeta": nzeta}
-    f = np.asarray(continuum(geometry, h, rho, **grid)) / 1e3
     s, iota = np.asarray(geometry.s), np.asarray(geometry.iota)
-    low, high = f[:, :-1].max(0), f[:, 1:].min(0)
-    found = []
-    for k in np.flatnonzero(high - low > 0):
-        center = 0.5 * (low[k] + high[k])
-        if high[k] - low[k] >= min_width * center and (window is None or window[0] <= center <= window[1]):
-            found.append((high[k] - low[k], k, center))
-    found = sorted(found, reverse=True)[:max_gaps]
-    gaps = []
-    for w, k, center in found:
-        i = int(np.argmin(f[:, k + 1] - f[:, k]))  # the surface where the two branches approach
-        near = np.arange(3) + min(max(i - 1, 0), len(s) - 3)  # surface_grid needs three surfaces
-        K, M = continuum_matrices(geometry.surfaces(near), h, rho, **grid)
-        x = np.asarray(generalized_eigh(K, M)[1])[i - near[0], :, k : k + 2]
-        a, b = np.argsort(-(np.abs(x) ** 2).sum(1))[:2]
-        dm, dn = abs(h[a, 0] - h[b, 0]), round(abs(h[a, 1] - h[b, 1]) / geometry.nfp)
-        gaps.append(
+    xm, xn = np.asarray(geometry.xm), np.asarray(geometry.xn)
+    m0 = np.flatnonzero((xm == 0) & (xn == 0))[0]
+    B0, R0 = abs(float(geometry.bmnc[0, m0])), float(geometry.rmnc[0, m0])
+    f_alfven = B0 / np.sqrt(4e-7 * np.pi * float(np.ravel(rho)[0])) / (2 * np.pi * R0) / 1e3
+    edge_i = max(1, int(np.ceil(edge * len(s))))
+    window = (0.0, max(2, geometry.nfp) * f_alfven) if window is None else window
+    families, gaps = [], []
+    for fi, rows in enumerate(mode_families(geometry, h)):
+        hf, H = h[rows], len(rows)
+        spectra = [_spectrum(geometry, hf, rho, None, grid)]  # gaps and crossings of the shear-Alfven modes
+        if pressure is not None:  # BAE gaps only: sound branches cut through the Alfven gaps without closing them
+            spectra.append(_spectrum(geometry, hf, rho, pressure, grid))
+        mmax = np.abs(hf[:, 0]).max()
+        trunc = spectra[0][0][np.abs(spectra[0][2]) == mmax]
+        f_trunc = trunc.min() if trunc.size and mmax > 0 else np.inf
+        families.append(
             dict(
-                center_khz=float(center),
-                width_khz=float(w),
-                low_khz=float(low[k]),
-                high_khz=float(high[k]),
-                s=float(s[i]),
-                iota=float(iota[i]),
-                type=_gap_type(int(dm), dn),
-                harmonics=h[[a, b]].astype(int).tolist(),
+                harmonics=hf.astype(int).tolist(),
+                continuum_khz=spectra[-1][0],
+                dominant_m=spectra[-1][2],
+                shear_alfven_khz=spectra[0][0],
             )
         )
-    mode, reason = None, "no global gap in the window"
-    if gaps:
-        g = gaps[0]
-        em = eigenmodes(geometry, h, rho, target_hz=1e3 * g["center_khz"], count=count, iters=iters, tol=tol, **grid)
+        for with_sound, (f, power, _) in enumerate(spectra):
+            for k, i, a, b, low, high in _local_gaps(f, min_width, edge_i):
+                center = 0.5 * (low + high)
+                top = np.argsort(-power[i][:, k : k + 2].sum(1))[:2]
+                sound = bool((top >= H).any())
+                (ma, na), (mb, nb) = hf[top[0] % H], hf[top[1] % H]
+                if sound != bool(with_sound) or (not sound and (mmax in (abs(ma), abs(mb)) or high > f_trunc)):
+                    continue
+                if center < 0.05 * f_alfven or high - low < 0.01 * f_alfven or not window[0] <= center <= window[1]:
+                    continue
+                gaps.append(
+                    dict(
+                        center_khz=float(center),
+                        width_khz=float(high - low),
+                        low_khz=float(low),
+                        high_khz=float(high),
+                        s=float(s[i]),
+                        s_range=[float(s[a]), float(s[b])],
+                        iota=float(iota[i]),
+                        type=_gap_type(int(abs(ma - mb)), round(abs(na - nb) / geometry.nfp), sound),
+                        harmonics=[[int(ma), int(na)], [int(mb), int(nb)]],
+                        family=fi,
+                    )
+                )
+    gaps = sorted(gaps, key=lambda g: (g["type"] == "BAE", -g["width_khz"] / g["center_khz"]))[:max_gaps]
+    mode, reasons = None, []
+    for gi, g in [(i, g) for i, g in enumerate(gaps) if g["type"] != "BAE"]:  # the eigenmode has no sound coupling
+        fam = families[g["family"]]
+        hf, f = np.asarray(fam["harmonics"], dtype=float), fam["shear_alfven_khz"]
+        i0 = int(np.argmin(abs(s - g["s"])))
+        em = eigenmodes(geometry, hf, jnp.asarray(rho), target_hz=1e3 * g["center_khz"], count=count, iters=iters, tol=tol, **grid)
         freq = np.asarray(em.frequencies_hz) / 1e3
-        inside = np.flatnonzero((g["low_khz"] < freq) & (freq < g["high_khz"]))
-        if inside.size:
-            j = inside[np.argmin(abs(freq[inside] - g["center_khz"]))]
-            power = (np.abs(np.asarray(em.structures)[j]) ** 2).sum(-1)
+        why = "outside the band"
+        for j in np.argsort(abs(freq - g["center_khz"])):
+            if not g["low_khz"] < freq[j] < g["high_khz"]:
+                continue
+            xj = np.asarray(em.structures)[j]
+            p = (np.abs(xj) ** 2).sum(-1)
+            support = p > 0.1 * p.max()
+            peak = s[p.argmax()]
+            below = (f < freq[j]).sum(1)  # shear-Alfven branches below the mode: constant unless it crosses the continuum
+            if support.sum() < 3:
+                why = "resolved on fewer than three surfaces"
+                continue
+            pair = [int(np.flatnonzero((hf == q).all(1))[0]) for q in np.asarray(g["harmonics"], dtype=float)]
+            if np.abs(xj[:, pair]).max(0).min() < 0.2 * np.abs(xj).max():
+                why = "not carried by both harmonics of the gap"
+                continue
+            if (below[p > 1e-2 * p.max()] != below[i0]).any():  # tails too: a mode cut off at a crossing is continuum-damped
+                why = "crossing the continuum"
+                continue
+            if not edge < peak < 1 - edge:
+                why = "pinned to the axis or the boundary"
+                continue
+            big = xj.ravel()[np.abs(xj).argmax()]
+            c = xj * np.conj(big) / abs(big)
+            theta = np.linspace(0, 2 * np.pi, 129)
+            ang = theta[:, None] * xm[None]
+            R = np.asarray(geometry.rmnc) @ np.cos(ang).T + np.asarray(geometry.rmns) @ np.sin(ang).T
+            Z = np.asarray(geometry.zmns) @ np.sin(ang).T + np.asarray(geometry.zmnc) @ np.cos(ang).T
+            phi = np.real(c @ np.exp(1j * hf[:, 0][:, None] * theta[None]))
             mode = dict(
                 frequency_khz=float(freq[j]),
-                peak_s=float(s[power.argmax()]),
+                peak_s=float(peak),
+                support=[float(s[support].min()), float(s[support].max())],
+                family=g["family"],
+                gap=gi,
                 in_gap=True,
                 converged=bool(em.status.converged),
                 residual=float(em.status.residual),
-                structure=np.abs(np.asarray(em.structures)[j]),
+                structure=np.real(c),
+                harmonics=hf.astype(int).tolist(),
+                cross_section=dict(R=R, Z=Z, phi=phi / np.abs(phi).max()),
             )
-            reason = ""
-        else:
-            reason = f"none of the {count} modes nearest {g['center_khz']:.1f} kHz lies inside the widest gap"
+            break
+        if mode:
+            break
+        reasons.append(f"{g['type']} {g['center_khz']:.0f} kHz: nearest of {count} modes {why}")
+    reason = "" if mode else ("; ".join(reasons) if reasons else "no gap in the window")
     n_i, amu = ions if ions else (None, None)
+    pick = mode["family"] if mode else (gaps[0]["family"] if gaps else 0)
     return dict(
         harmonics=h.astype(int).tolist(),
-        density_kg_m3=float(rho),
+        density_kg_m3=rho.tolist(),
         density_m3=n_i,
         ion_mass_amu=amu,
+        sound=pressure is not None,
+        alfven_khz=float(f_alfven),
         window_khz=window,
         gaps=gaps,
         mode=mode,
         mode_reason=reason,
-        profiles=dict(s=s, iota=iota, continuum_khz=f),
+        family=pick,
+        profiles=dict(s=s, iota=iota, families=families),
     )

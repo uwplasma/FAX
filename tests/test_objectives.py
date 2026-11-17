@@ -139,38 +139,78 @@ def test_fixed_geometry_derivative_has_a_step_size_plateau(target):
 # summary and plot_summary
 
 
-def test_summary_tae_gap_and_mode(tmp_path):
-    """The TAE band of a circular torus is a global gap at the cylindrical crossing, and the global mode lies inside it."""
+def _tae_case():
     N, R0, B0, n_i, amu = 32, 10.0, 3.0, 2e19, 1.00727647
     s = (jnp.arange(N) + 0.5) / N
     geo = fax.circular_torus(s=s, major_radius=R0, minor_radius=1.0, B0=B0, iota=0.5 + 0.35 * s, epsilon_B=0.15)
-    rho = fax.mass_density(n_i, amu)
-    out = fax.summary(geo, fax.mode_family(1, 2, 1), rho, ions=(n_i, amu), count=3, ntheta=16, nzeta=4)
+    return geo, fax.mode_family(1, 4, 0), fax.mass_density(n_i, amu), (n_i, amu), R0, B0
+
+
+def test_summary_tae_gap_and_mode(tmp_path):
+    """The (1,1)-(2,1) TAE gap of a circular torus opens at the cylindrical crossing with the cylindrical frequency, over a
+    radial range around it, and the gap mode inside it stays clear of the continuum over its support."""
+    geo, h, rho, ions, R0, B0 = _tae_case()
+    out = fax.summary(geo, h, rho, ions=ions, count=3, ntheta=16, nzeta=4)
     iota_c, w_hat = fax.gap_location(1, 1, 1)
     f_c = w_hat * B0 / np.sqrt(4e-7 * np.pi * float(rho)) / (2 * np.pi * R0) / 1e3
-    gap = out["gaps"][0]
-    assert gap["type"] == "TAE" and sorted(gap["harmonics"]) == [[1, 1], [2, 1]]
-    assert gap["low_khz"] < gap["center_khz"] < gap["high_khz"]
+    assert abs(out["alfven_khz"] / (f_c / w_hat) - 1) < 0.01 and not out["sound"]
+    gap = next(g for g in out["gaps"] if sorted(g["harmonics"]) == [[1, 1], [2, 1]])
+    assert gap["type"] == "TAE" and gap["low_khz"] < gap["center_khz"] < gap["high_khz"]
     assert abs(gap["center_khz"] / f_c - 1) < 0.05 and abs(gap["iota"] - iota_c) < 0.05
+    assert gap["s_range"][0] < gap["s"] < gap["s_range"][1]
+    assert all(4 not in (abs(a[0]), abs(b[0])) for a, b in (g["harmonics"] for g in out["gaps"]))  # m_max is truncation
     mode = out["mode"]
-    assert mode["in_gap"] and mode["converged"] and gap["low_khz"] < mode["frequency_khz"] < gap["high_khz"]
-    assert (out["density_m3"], out["ion_mass_amu"], out["density_kg_m3"]) == (n_i, amu, float(rho))
+    g = out["gaps"][mode["gap"]]
+    assert mode["converged"] and g["low_khz"] < mode["frequency_khz"] < g["high_khz"] and 0.05 < mode["peak_s"] < 0.95
+    assert mode["support"][0] <= mode["peak_s"] <= mode["support"][1] and mode["structure"].shape == (32, 5)
+    assert np.isrealobj(mode["structure"]) and mode["cross_section"]["phi"].shape == mode["cross_section"]["R"].shape
+    assert (out["density_m3"], out["ion_mass_amu"], out["density_kg_m3"]) == (*ions, float(rho))
     png = fax.plot_summary(out, tmp_path / "summary.png")
     assert png.stat().st_size > 5000
 
 
-def test_summary_without_gap_or_mode(tmp_path, monkeypatch):
-    """An empty window gives no gaps and no mode, a gap without a mode in it says why, and the figure draws both."""
-    s = (jnp.arange(20) + 0.5) / 20
-    geo = fax.circular_torus(s=s, iota=0.5 + 0.35 * s, epsilon_B=0.3)
-    rho, h = fax.mass_density(2e19, 2.0), fax.mode_family(1, 2, 1)
-    out = fax.summary(geo, h, rho, window=(1e6, 2e6), ntheta=16, nzeta=4)
-    assert out["gaps"] == [] and out["mode"] is None and "no global gap" in out["mode_reason"]
+def test_mode_families_split_uncoupled_harmonics():
+    """Different n never couple in a tokamak; in a stellarator only n mod nfp is conserved."""
+    geo = fax.circular_torus(epsilon_B=0.2, nfp=3)
+    h = fax.mode_family((-1, 0, 1, 2, 3), 2, 0)
+    assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(geo, h)] == [[-1], [0], [1], [2], [3]]
+    stell = replace(geo, xn=geo.xn.at[2].set(3.0))  # a helical harmonic of the boundary shift
+    assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(stell, h)] == [[0, 3], [1], [-1, 2]]
+
+
+def test_summary_rejections_and_sound(tmp_path, monkeypatch):
+    """An empty window and modes outside the band, on one surface, in one harmonic, pinned to the edge or crossing the
+    continuum each give a reason;
+    with pressure the sound branches open BAE gaps that are reported but never searched for a shear-Alfven mode."""
+    geo, h, rho, ions, *_ = _tae_case()
+    opts = dict(ntheta=16, nzeta=4, count=1)
+    out = fax.summary(geo, h, rho, window=(1e6, 2e6), **opts)
+    assert out["gaps"] == [] and out["mode"] is None and out["mode_reason"] == "no gap in the window"
     assert fax.plot_summary(out, tmp_path / "none.png").exists()
     solve = fax.objectives.eigenmodes
-    monkeypatch.setattr(
-        fax.objectives, "eigenmodes", lambda *a, **k: (lambda m: m._replace(frequencies_hz=3 * m.frequencies_hz))(solve(*a, **k))
-    )
-    out = fax.summary(geo, h, rho, count=1, ntheta=16, nzeta=4)  # every mode outside the band
-    assert out["gaps"] and out["mode"] is None and "lies inside" in out["mode_reason"]
+
+    def patched(scale=1.0, shape=None):
+        def run(*a, **k):
+            m = solve(*a, **k)
+            return m._replace(frequencies_hz=scale * m.frequencies_hz, structures=shape(m) if shape else m.structures)
+
+        return run
+
+    sheared = fax.circular_torus(s=geo.s, major_radius=10.0, B0=3.0, iota=0.3 + 1.2 * geo.s, epsilon_B=0.15)  # local gaps
+    for g, kw, why in (
+        (geo, dict(scale=3.0), "outside the band"),
+        (geo, dict(shape=lambda m: jnp.zeros_like(m.structures).at[:, 16].set(1.0)), "fewer than three"),
+        (geo, dict(shape=lambda m: m.structures.at[..., 2:].set(0.0)), "both harmonics"),  # (1,1) alone
+        (geo, dict(shape=lambda m: jnp.ones_like(m.structures) * jnp.exp(10 * (m.s - 1))[None, :, None]), "pinned"),
+        (sheared, dict(shape=lambda m: jnp.ones_like(m.structures)), "crossing"),
+    ):
+        monkeypatch.setattr(fax.objectives, "eigenmodes", patched(**kw))
+        out = fax.summary(g, h, rho, **opts)
+        assert out["gaps"] and out["mode"] is None and why in out["mode_reason"]
     assert fax.plot_summary(out, tmp_path / "nomode.png").exists()
+    monkeypatch.setattr(fax.objectives, "eigenmodes", solve)
+    h2 = fax.mode_family(1, 4, -4)
+    out = fax.summary(geo, h2, rho, pressure=jnp.full(32, 3e5), ions=(ions[0] * jnp.ones(32), ions[1]), **{**opts, "ntheta": 32})
+    assert out["sound"] and any(g["type"] == "BAE" for g in out["gaps"])
+    assert out["mode"] is None or out["gaps"][out["mode"]["gap"]]["type"] != "BAE"
+    assert fax.plot_summary(out, tmp_path / "sound.png").exists()
