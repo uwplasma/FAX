@@ -335,7 +335,7 @@ term removed. `tests/data/knyazev_qa.npz` (0.67 MB) reduces it; `tests/data/PROV
 `examples/knyazev_qa.py` with `RESEARCH = True` reproduces every number below (15 min, 8 GB; the helpers are in `tests/knyazev_ref.py`). FAX runs with
 `finite_beta=False`, a flat density of 1.88e-6 kg/m$^3$ (the decks are not in the archive; the value reproduces the
 continuum), AE3D's 49 nodes $s = 0.02..0.98$ and its 162 harmonics. AE3D's sine basis is FAX's operator on
-$(m, n), (-m, -n)$ restricted to the odd subspace.
+$(m, n), (-m, -n)$ restricted to the odd subspace (`parity=-1`).
 
 ```{image} _static/knyazev_qa.png
 :alt: Precise-QA continuum and gap band, the archived global mode in FAX's eigenbasis, convergence with the harmonics
@@ -344,7 +344,7 @@ $(m, n), (-m, -n)$ restricted to the odd subspace.
 
 **Continuum.** STELLGAP labels surface $k$ one cell (0.02) outward, as for CTOK. On its 98 stored surfaces (162 sorted
 branches each) the relative L2 error is mean 3.0e-3, p95 3.4e-3, max 4.3e-3 in the complex basis of the harmonic list
-(3.5e-3 mean, 4.4e-3 max in the odd sector), unchanged between grids of 48 x 32 and 112 x 72 where unaliased. The branches
+(3.5e-3 mean, 4.4e-3 max in the odd sector; 1.6e-3 mean, 2.6e-3 max in the even sector, which is STELLGAP's cosine basis, `parity=1`), unchanged between grids of 48 x 32 and 112 x 72 where unaliased. The branches
 that bracket the archived global mode's gap at $s > 0.25$ agree to 1.0% (the lower, median 0.4%) and 3.0% (the upper, near 35 kHz, median 1%). The
 spectrum of AE3D is dense: only 3 of its 7938 eigenvalues above 5 kHz are 1% from both neighbours, so **no isolated
 frequency exists** in this case, and 56 eigenvalues are negative (AE3D's own, down to $-84$ kHz$^2$); FAX's operator is

@@ -140,6 +140,13 @@ returns $f = \sqrt{\max(\omega^2,0)}/2\pi$ sorted on each surface.
 **Uniform field.** For $\epsilon_B = 0$ the matrices are diagonal and
 $\omega = |n - m\iota|\,v_A/R_0$, $v_A = B_0/\sqrt{\mu_0\rho}$, exactly.
 
+**Stellarator symmetry and parity.** With every asymmetric harmonic zero, $(\theta,\zeta)\to(-\theta,-\zeta)$ commutes with the
+operator, so $K$ and $M$ are real and FAX solves them in real arithmetic. A real potential needs $(m, n)$ and $(-m, -n)$ together.
+The single-sign list $e_j$ misses the coupling of $(m, n)$ to $(-m', -n')$ through the field harmonic $(m + m', n + n')$, present when
+$2n$ is a multiple of $N_{fp}$ (every family at $N_{fp} = 2$, $n = 0$ in a tokamak). On both signs the problem splits exactly into
+the real cosine sector, STELLGAP's basis, and the sine sector, AE3D's, each the size of the list: `parity=1` or `-1` in
+{func}`fax.continuum_matrices` and {func}`fax.eigen.global_matrices`.
+
 **Mode families.** In a stellarator with $N_{fp}$ periods, $n$ couples only to
 $n + kN_{fp}$, so a family is a list `n = [n0, n0 + Nfp, n0 - Nfp, ...]` in
 {func}`fax.mode_family`. Paul et al. (2025) normalize by
