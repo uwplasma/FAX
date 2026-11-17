@@ -10,6 +10,10 @@ import knyazev_ref as kq
 import numpy as np
 import pytest
 
+import fax
+from fax.continuum import generalized_eigh
+from fax.eigen import dense, global_matrices
+
 FIXTURE = Path(__file__).parent / "data" / "knyazev_qa.npz"
 
 
@@ -52,3 +56,24 @@ def test_ae3d_band_at_64_harmonics(fx):
     c = kq.compare(fx, r)
     assert abs(c["rq"][c["global"]] / kq.GLOBAL_KHZ - 1) < 2e-2
     assert 18 <= len(c["band"]) <= 24 and c["contained"].mean() > 0.3
+
+
+def test_parity_sectors_split_the_two_sign_problem_and_cos_is_stellgaps_basis(fx):
+    """The cos and sin sectors together are the problem on (m, n) and (-m, -n); the single-sign basis is neither sector."""
+    geo, h = kq.geometry(fx, 12), fx["mn"][fx["order"][:16]].astype(float)
+    both = np.concatenate([h, -h])
+    full = np.asarray(fax.continuum(geo, both, kq.RHO, 64, 48))
+    cos, sin = (np.asarray(fax.continuum(geo, h, kq.RHO, 64, 48, parity=p)) for p in (1, -1))
+    np.testing.assert_allclose(np.sort(np.concatenate([cos, sin], 1)), full, rtol=1e-9)
+    F, G = global_matrices(geo, both, kq.RHO, 64, 48)
+    sectors = [global_matrices(geo, h, kq.RHO, 64, 48, parity=p) for p in (1, -1)]
+    lam = np.sort(np.concatenate([generalized_eigh(dense(A), dense(B))[0] for A, B in sectors]))
+    np.testing.assert_allclose(lam, generalized_eigh(dense(F), dense(G))[0], rtol=1e-9)
+    assert dense(sectors[0][0]).dtype == np.float64 and dense(sectors[0][0]).shape == (12 * 16, 12 * 16)
+    single = np.asarray(fax.continuum(geo, h, kq.RHO, 64, 48))
+    assert np.abs(single / cos - 1).max() > 1e-2  # the (m, n) x (-m', -n') coupling is missing from the single-sign basis
+    sub = {**fx, "sg_s": fx["sg_s"][::8], "sg_khz": fx["sg_khz"][::8]}
+    err = kq.continuum_error(sub, 112, 72, parity=1)[0]
+    assert err.mean() < 2e-3 and err.max() < 3e-3  # STELLGAP's cos basis: 1.6e-3 mean, 2.6e-3 max on all 98 (single-sign 3.0e-3, 4.3e-3)
+    with pytest.raises(ValueError, match="once up to sign"):
+        fax.continuum(geo, both, kq.RHO, 64, 48, parity=1)

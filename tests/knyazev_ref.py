@@ -20,7 +20,7 @@ import numpy as np
 
 import fax
 from fax.continuum import generalized_eigh
-from fax.eigen import Blocks, dense, global_matrices
+from fax.eigen import dense, global_matrices
 
 FIXTURE = Path(__file__).resolve().parent / "data" / "knyazev_qa.npz"
 RHO = 1.88e-6  # kg/m^3
@@ -51,28 +51,13 @@ def geometry(fx, nodes=49):
     return geometry_half(fx).interpolate(jnp.arange(1, nodes + 1) / (nodes + 1.0))
 
 
-def continuum_khz(fx, geo, ntheta=64, nzeta=48, sine=False):
+def continuum_khz(fx, geo, ntheta=64, nzeta=48, parity=None):
     """FAX continuum (kHz, sorted) on every surface of ``geo`` for the 162 AE3D harmonics.
 
-    ``sine=False`` is the complex basis of the ``(m, n)`` list (STELLGAP lists 162 branches); ``sine=True`` restricts the
-    ``(m, n)`` and ``(-m, -n)`` basis to the odd subspace, which is AE3D's real sine basis (it needs a finer grid).
+    ``parity=None`` is the single-sign complex basis of the ``(m, n)`` list, ``1`` the cos sector (STELLGAP's basis) and
+    ``-1`` the sin sector (AE3D's); the sectors need a grid that resolves ``2 max m`` (112 x 72).
     """
-    h = jnp.asarray(fx["mn"], dtype=float)
-    if not sine:
-        return np.asarray(fax.continuum(geo, h, RHO, ntheta, nzeta)) / 1e3
-    K, M = fax.continuum_matrices(geo, jnp.concatenate([h, -h]), RHO, ntheta, nzeta)
-    q = jnp.concatenate([jnp.eye(len(h)), -jnp.eye(len(h))]) / np.sqrt(2.0)
-    odd = lambda A: jnp.einsum("ia,sij,jb->sab", q, A, q)  # noqa: E731
-    return np.sqrt(np.maximum(np.asarray(generalized_eigh(odd(K), odd(M))[0]), 0)) / 2e3 / np.pi
-
-
-def sine_blocks(geo, harmonics, ntheta=64, nzeta=48):
-    """AE3D's real sine basis: the FAX operator on ``(m, n)`` and ``(-m, -n)`` restricted to the odd subspace ``(c, -c)``."""
-    n = len(harmonics)
-    F, G = global_matrices(geo, np.concatenate([harmonics, -harmonics]), RHO, ntheta, nzeta)
-    q = jnp.concatenate([jnp.eye(n), -jnp.eye(n)]) / np.sqrt(2.0)
-    proj = lambda A: Blocks(jnp.einsum("ia,nij,jb->nab", q, A.diag, q), jnp.einsum("ia,nij,jb->nab", q, A.upper, q))  # noqa: E731
-    return proj(F), proj(G)
+    return np.asarray(fax.continuum(geo, jnp.asarray(fx["mn"], dtype=float), RHO, ntheta, nzeta, parity=parity)) / 1e3
 
 
 def solve(F, G):
@@ -118,14 +103,14 @@ def rayleigh_khz(F, G, a):
     return float(np.sqrt((a.conj() @ F @ a).real / (a.conj() @ G @ a).real) / 2e3 / np.pi)
 
 
-def continuum_error(fx, ntheta=64, nzeta=48, sine=False):
+def continuum_error(fx, ntheta=64, nzeta=48, parity=None):
     """FAX against STELLGAP on the fixture surfaces (physical ``s`` = label - 0.02): per-surface relative L2 error of the
     sorted branches, and the relative error of the two branches that bracket ``GLOBAL_KHZ`` (lower, upper edge of its gap)."""
     s = fx["sg_s"] - 0.02
     ok = (s > fx["g_s"][0]) & (s < fx["g_s"][-1])
     ref = fx["sg_khz"][ok].astype(float)
     half = geometry_half(fx)
-    f = continuum_khz(fx, half.interpolate(s[ok]), ntheta, nzeta, sine)
+    f = continuum_khz(fx, half.interpolate(s[ok]), ntheta, nzeta, parity)
     err = np.linalg.norm(f - ref, axis=1) / np.linalg.norm(ref, axis=1)
     pair = lambda a: np.stack([[r[np.searchsorted(r, GLOBAL_KHZ) + d] for d in (-1, 0)] for r in a])  # noqa: E731
     low, up = pair(f), pair(ref)
@@ -147,7 +132,7 @@ class Run(NamedTuple):
 def run(fx, nodes=49, harmonics=64, ntheta=64, nzeta=48):
     """All FAX modes in the sine basis of the ``harmonics`` AE3D harmonics with the largest band energy."""
     geo, h = geometry(fx, nodes), fx["mn"][fx["order"][:harmonics]].astype(float)
-    F, G = sine_blocks(geo, h, ntheta, nzeta)
+    F, G = global_matrices(geo, h, RHO, ntheta, nzeta, parity=-1)  # AE3D's sine basis
     f, y, Gd = solve(F, G)
     s = np.asarray(geo.s)
     band = band_modes(f, radial_weight(y), s, fx["sg_s"], fx["sg_khz"].astype(float))
