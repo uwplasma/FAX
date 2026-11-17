@@ -17,6 +17,7 @@ displacement through the geodesic curvature (Cheng & Chance 1986; docs/theory.md
 
 from __future__ import annotations
 
+from functools import partial
 from numbers import Integral
 from typing import Any, NamedTuple
 
@@ -24,7 +25,7 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 
-from .geometry import Geometry, check, surface_grid, symmetric
+from .geometry import Geometry, check, field_period, surface_grid, symmetric
 
 MU0 = 4.0e-7 * jnp.pi
 AMU = 1.66053906660e-27
@@ -78,19 +79,21 @@ def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     return lam, tri(y, 2)  # L^-H y
 
 
-def angle_mean(f: jax.Array, h: jax.Array) -> jax.Array:
+def angle_mean(f: jax.Array, h: jax.Array, period: int = 1) -> jax.Array:
     """``<f exp(i(dm theta - dn zeta))>`` for a real ``f`` of shape ``(..., theta, zeta)`` and all harmonic pairs, shape ``(..., H, H)``
-    (row ``i`` conjugated, ``dm = m_j - m_i``): the DFT of ``f`` at ``(-dm, dn)``, one real FFT instead of an ``(H, H, T, Z)`` tensor."""
+    (row ``i`` conjugated, ``dm = m_j - m_i``): the DFT of ``f`` at ``(-dm, dn)``, one real FFT instead of an ``(H, H, T, Z)`` tensor.
+    With ``period``, ``f`` is sampled on one sector ``2 pi / period`` of a ``2 pi / period``-periodic field, so only ``dn`` that are
+    multiples of ``period`` survive the average."""
     T, Z = f.shape[-2:]
     dm, dn = (h[None, :, 0] - h[:, None, 0]).astype(int), (h[None, :, 1] - h[:, None, 1]).astype(int)
-    a, b = -dm % T, dn % Z
+    a, b = -dm % T, (dn // period) % Z
     hi = b > Z // 2  # beyond the half spectrum of a real f: F[a, b] = conj(F[-a, -b])
     F = jnp.fft.rfft2(f)[..., jnp.where(hi, -a % T, a), jnp.where(hi, Z - b, b)]
-    return jnp.where(hi, jnp.conj(F), F) / (T * Z)
+    return jnp.where(dn % period == 0, jnp.where(hi, jnp.conj(F), F) / (T * Z), 0)
 
 
 def sound_coupling(
-    geo: Geometry, h: jax.Array, rho: jax.Array, pressure: Any, gamma: float, grid: Any
+    geo: Geometry, h: jax.Array, rho: jax.Array, pressure: Any, gamma: float, grid: Any, period: int = 1
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """Sound blocks added to the shear-Alfven pencil, same ``<.>`` weighting and a common factor ``psi'`` dropped.
 
@@ -108,7 +111,7 @@ def sound_coupling(
     J, B = jnp.abs(grid.jacobian), grid.B
     gp = (gamma * jnp.broadcast_to(jnp.asarray(pressure, dtype=float), geo.s.shape))[:, None, None]
     gp = gp / (1.0 + MU0 * gp / B**2)  # the stiff compressional Alfven response: gamma p B^2 / (B^2 + mu0 gamma p) (Cheng & Chance eq. 15)
-    mean = lambda f: angle_mean(f, h)  # noqa: E731
+    mean = lambda f: angle_mean(f, h, period)  # noqa: E731
     pp = mean(4.0 * gp * J * cur**2)
     pc = -2j * a[:, None, :] * mean(gp * J * cur * B**2)
     cc = a[:, :, None] * a[:, None, :] * mean(gp * J * B**4)
@@ -146,7 +149,8 @@ def continuum_matrices(
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
-    grid = surface_grid(geo, ntheta, nzeta)
+    period = field_period(geo, nzeta)
+    grid = surface_grid(geo, ntheta, nzeta, period)
     if pressure is not None:
         check(jnp.all(jnp.isfinite(jnp.asarray(pressure)) & (jnp.asarray(pressure) >= 0)), "pressure must be finite and non-negative")
         check(
@@ -154,7 +158,7 @@ def continuum_matrices(
             "pressure must be a scalar or have one value per surface",
         )
         check(gamma > 0, "gamma must be positive")
-    KM = _continuum_matrices(geo, grid, h, density, pressure, gamma)
+    KM = _continuum_matrices(geo, grid, h, density, pressure, gamma, period)
     return jax.tree_util.tree_map(project, KM) if symmetric(geo) else KM
 
 
@@ -182,15 +186,15 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | None) -> tuple[jax.A
     return jnp.concatenate([h, -h]), project
 
 
-@jax.jit
-def _continuum_matrices(geo: Geometry, grid: Any, h: jax.Array, density: Any, pressure: Any, gamma: float) -> Matrices:
+@partial(jax.jit, static_argnums=6)
+def _continuum_matrices(geo: Geometry, grid: Any, h: jax.Array, density: Any, pressure: Any, gamma: float, period: int) -> Matrices:
     weight = jnp.abs(grid.jacobian) * grid.grad_s2 / grid.B**2
     a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / (geo.G + geo.iota * geo.I)[:, None]  # k_j = a_j |B|
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
-    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h)
-    M = rho[:, None, None] * angle_mean(weight, h)
+    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h, period)
+    M = rho[:, None, None] * angle_mean(weight, h, period)
     if pressure is not None:
-        pp, pc, cc, mc = sound_coupling(geo, h, rho, pressure, gamma, grid)
+        pp, pc, cc, mc = sound_coupling(geo, h, rho, pressure, gamma, grid, period)
         Z = jnp.zeros_like(mc)
         K = jnp.concatenate([jnp.concatenate([K + pp, pc], -1), jnp.concatenate([herm(pc), cc], -1)], -2)
         M = jnp.concatenate([jnp.concatenate([M, Z], -1), jnp.concatenate([Z, mc], -1)], -2)
