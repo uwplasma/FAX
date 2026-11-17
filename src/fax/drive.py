@@ -41,6 +41,7 @@ Trapped and precessing particles are omitted (no bounce-averaged precession reso
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 import jax
@@ -117,8 +118,35 @@ def growth_rate(
     small-divisor regularizations described in the module docstring (defaults 0 and 1e-2).
     """
     hm = np.asarray(harmonics, dtype=float)
-    m, n = (jnp.asarray(hm[:, i])[:, None, None] for i in (0, 1))
-    phi = jnp.asarray(phi)
+    pairs = np.array(
+        [
+            (j, k)
+            for j in range(int(hm[:, 0].min()) - sidebands, int(hm[:, 0].max()) + sidebands + 1)
+            for k in sorted({nn + kk * geo.nfp for nn in hm[:, 1] for kk in range(-helical, helical + 1)})
+        ],
+        dtype=float,
+    )
+    gamma = _growth_rate(omega, jnp.asarray(phi), geo, hm, ions, mass_density, pairs, boundary, guard, nodes, ntheta, nzeta)
+    return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
+
+
+@partial(jax.jit, static_argnums=(9, 10, 11))
+def _growth_rate(
+    omega: Any,
+    phi: Any,
+    geo: Geometry,
+    hm: Any,
+    ions: FastIons,
+    mass_density: Any,
+    pairs: Any,
+    boundary: Any,
+    guard: Any,
+    nodes: int,
+    ntheta: int,
+    nzeta: int,
+) -> jax.Array:
+    """The growth rate of each resonance in ``pairs``, compiled once per shape (see :func:`growth_rate`)."""
+    m, n = (hm[:, i][:, None, None] for i in (0, 1))
     g = surface_grid(geo, ntheta, nzeta)
     col = lambda a: jnp.asarray(a)[:, None, None]  # noqa: E731 - per-surface value -> (S, 1, 1)
     D = geo.G + geo.iota * geo.I
@@ -141,14 +169,6 @@ def growth_rate(
     weight = 0.5 * (1.0 + xi**2) * h / hbar[..., None, None] * jnp.sum(kernel, 1)[:, None]  # (S, L, T, Z): C = sum_h C_h, phase is h-free
     omega_hat = 1.0 / (jnp.abs(D)[:, None] * hbar)  # omega_zeta / v
     dens = jnp.asarray(ions.density) * jnp.ones_like(geo.s)
-    pairs = np.array(
-        [
-            (j, k)
-            for j in range(int(hm[:, 0].min()) - sidebands, int(hm[:, 0].max()) + sidebands + 1)
-            for k in sorted({nn + kk * geo.nfp for nn in hm[:, 1] for kk in range(-helical, helical + 1)})
-        ],
-        dtype=float,
-    )
 
     def resonance(jk: jax.Array) -> jax.Array:
         j, k = jk[0], jk[1]
@@ -161,14 +181,11 @@ def growth_rate(
         q = (dens[:, None] * dfde + star * f) * jnp.abs(C) ** 2
         return v**6 * q / (rate * omega_hat)
 
-    power = jnp.abs(psi) * jnp.sum(
-        jax.lax.map(jax.checkpoint(resonance), jnp.asarray(pairs)) * wx * (1.0 - boundary) / (2 * bmax), axis=-1
-    )  # (P, S)
+    power = jnp.abs(psi) * jnp.sum(jax.lax.map(jax.checkpoint(resonance), pairs) * wx * (1.0 - boundary) / (2 * bmax), axis=-1)  # (P, S)
     zero = jnp.zeros((len(pairs), 1))
     radial = jnp.trapezoid(jnp.concatenate([zero, power, zero], 1), jnp.concatenate([zero[0], geo.s, jnp.ones(1)]))
     inertia = global_matrices(geo, hm, mass_density, ntheta=ntheta, nzeta=nzeta)[1]
-    gamma = jnp.pi**2 * MU0 * (ions.mass_amu * AMU) ** 2 / 2 * radial / _quad(phi[..., None], inertia)[0]
-    return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
+    return jnp.pi**2 * MU0 * (ions.mass_amu * AMU) ** 2 / 2 * radial / _quad(phi[..., None], inertia)[0]
 
 
 def ion_landau_damping(

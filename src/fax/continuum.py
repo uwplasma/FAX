@@ -65,6 +65,7 @@ def herm(a: jax.Array) -> jax.Array:
     return jnp.conj(jnp.swapaxes(a, -1, -2))
 
 
+@jax.jit
 def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Solve ``K x = lam M x`` for Hermitian ``K`` and positive-definite ``M`` (batched).
 
@@ -135,11 +136,6 @@ def continuum_matrices(
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
     grid = surface_grid(geo, ntheta, nzeta)
-    weight = jnp.abs(grid.jacobian) * grid.grad_s2 / grid.B**2
-    a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / (geo.G + geo.iota * geo.I)[:, None]  # k_j = a_j |B|
-    rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
-    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h)
-    M = rho[:, None, None] * angle_mean(weight, h)
     if pressure is not None:
         check(jnp.all(jnp.isfinite(jnp.asarray(pressure)) & (jnp.asarray(pressure) >= 0)), "pressure must be finite and non-negative")
         check(
@@ -147,6 +143,17 @@ def continuum_matrices(
             "pressure must be a scalar or have one value per surface",
         )
         check(gamma > 0, "gamma must be positive")
+    return _continuum_matrices(geo, grid, h, density, pressure, gamma)
+
+
+@jax.jit
+def _continuum_matrices(geo: Geometry, grid: Any, h: jax.Array, density: Any, pressure: Any, gamma: float) -> Matrices:
+    weight = jnp.abs(grid.jacobian) * grid.grad_s2 / grid.B**2
+    a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / (geo.G + geo.iota * geo.I)[:, None]  # k_j = a_j |B|
+    rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
+    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h)
+    M = rho[:, None, None] * angle_mean(weight, h)
+    if pressure is not None:
         pp, pc, cc, mc = sound_coupling(geo, h, rho, pressure, gamma, grid)
         Z = jnp.zeros_like(mc)
         K = jnp.concatenate([jnp.concatenate([K + pp, pc], -1), jnp.concatenate([herm(pc), cc], -1)], -2)
