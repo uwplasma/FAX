@@ -75,6 +75,9 @@ def test_circular_geometry_run():
     k = np.abs(1.0 - np.arange(9) * 0.4) / 5.5  # uniform field: f = |n - m iota| B0 / (R sqrt(mu0 rho)) / 2 pi
     exact = np.sort(k * 2.7 / np.sqrt(MU0 * fax.mass_density(1e19)) / (2 * np.pi))
     np.testing.assert_allclose(out["frequencies_hz"], np.broadcast_to(exact, (24, 9)), rtol=1e-9)
+    s = (np.arange(24) + 0.5) / 24  # a density profile 1 - s/2 raises f as 1 / sqrt(1 - s/2) on each surface
+    peaked = fax.run({"plasma": {"density_profile": [1.0, -0.5]}, "run": {"ntheta": 32, "nzeta": 4}}, save=False)
+    np.testing.assert_allclose(peaked["frequencies_hz"], out["frequencies_hz"] / np.sqrt(1 - s / 2)[:, None], rtol=1e-9)
     with pytest.raises(ValueError, match="aliases"):
         fax.run({"run": {"ntheta": 8, "nzeta": 4}}, save=False)
     with pytest.raises(ValueError):

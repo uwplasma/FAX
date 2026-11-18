@@ -39,7 +39,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "max_iter": 5000,
     },
     "modes": {"n": [1], "m_max": 8, "m_min": 0},
-    "plasma": {"density": 1.0e19, "ion_mass": 1.0},
+    "plasma": {"density": 1.0e19, "ion_mass": 1.0, "density_profile": [1.0]},
     "run": {"task": "continuum", "output": "outputs", "ntheta": 32, "nzeta": 32, "target_khz": 0.0, "count": 8},
 }
 
@@ -86,7 +86,8 @@ def run(case: str | Path | dict[str, Any], *, save: bool = True) -> dict[str, An
     r, m = config["run"], config["modes"]
     geo = geometry(config)
     harmonics = mode_family(tuple(m["n"]), m["m_max"], m["m_min"])
-    rho = mass_density(config["plasma"]["density"], config["plasma"]["ion_mass"])
+    p = config["plasma"]
+    rho = mass_density(p["density"] * np.polyval(p["density_profile"][::-1], np.asarray(geo.s)), p["ion_mass"])
     out: dict[str, Any] = {"s": geo.s, "iota": geo.iota, "harmonics": harmonics}
     if r["task"] == "continuum":
         f = continuum(geo, harmonics, rho, r["ntheta"], r["nzeta"])

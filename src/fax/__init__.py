@@ -11,6 +11,7 @@ from .geometry import Geometry, circular_torus, from_vmec_input, from_wout, read
 from .io import enable_cache, load, run
 from .objectives import (
     ModeClass,
+    alfven_harmonics,
     classify_modes,
     compression_harmonics,
     continuum_cost,
@@ -22,6 +23,7 @@ from .objectives import (
     gap_closure,
     geometry_frequencies,
     geometry_growth_rates,
+    mode_families,
     prepare_design,
     soft_max,
     state_geometry,
@@ -30,7 +32,7 @@ from .objectives import (
 )
 from .plot import plot_summary
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = [
     "FastIons",
     "Geometry",
@@ -69,6 +71,8 @@ __all__ = [
     "run",
     "soft_max",
     "state_geometry",
+    "alfven_harmonics",
+    "mode_families",
     "summary",
     "surface_grid",
     "window_risk",

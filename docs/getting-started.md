@@ -2,7 +2,7 @@
 
 ## Five minutes
 
-1. Install: `pip install alfvex` (version 1.1.0 on PyPI; the import name is `fax`).
+1. Install: `pip install alfvex` (version 1.2.0 on PyPI; the import name is `fax`).
 2. Run the quickstart below. It needs no data file and prints the TAE gap, the modes inside it and a gradient.
 3. Run a case from a checkout: `fax run examples/ctok_continuum.toml --plot --cache`. It writes `results.npz`, `case.json` and
    `continuum.png` to the case's output folder (relative to the case file); `--cache` keeps JAX compilations on disk, so a second run starts faster.
@@ -55,9 +55,9 @@ fax run case.toml --cache    # persists JAX compilations in ~/.cache/fax/jax (--
 fax plot outputs/case        # figures for an existing results folder
 ```
 
-**Python only:** the fast-ion drive and Landau damping, density profiles, `finite_beta`, solver options (`iters`, `tol`, the
+**Python only:** the fast-ion drive and Landau damping, `finite_beta`, solver options (`iters`, `tol`, the
 returned `Status`), mode classification, every objective (`window_risk`, `continuum_cost`, `gap_closure`, `drive_risk`),
-the VMEC-boundary design path and every derivative. The TOML `[plasma]` table is a uniform density.
+the VMEC-boundary design path and every derivative. The TOML `[plasma]` table takes `density_profile`, polynomial coefficients in `s` that multiply `density`.
 
 `results.npz` always holds `s`, `iota` and `harmonics`. A `continuum` run adds
 `frequencies_hz` (surfaces × harmonics), `gap_center_hz` and `gap_width_hz`
