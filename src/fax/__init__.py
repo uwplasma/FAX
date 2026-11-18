@@ -32,7 +32,7 @@ from .objectives import (
 )
 from .plot import plot_summary
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = [
     "FastIons",
     "Geometry",
