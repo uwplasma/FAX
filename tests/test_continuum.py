@@ -231,6 +231,8 @@ def test_default_basis_is_both_signs_split_into_independent_blocks(asymmetric_to
     assert [(b.parity, len(b.rows)) for b in spectral_blocks(sym, h)] == [(1, 4), (-1, 4)]
     assert [(b.parity, len(b.rows)) for b in spectral_blocks(asymmetric_torus, h)] == [(None, 8)]
     assert [b.parity for b in spectral_blocks(sym, fax.mode_family(1, 4))] == [None]  # n != 0 alone: the single-sign list
+    pair = spectral_blocks(sym, fax.mode_family((1, -1), 3))  # n = 1 with n = -1: one pencil, (0, -1) is (0, 1) conjugated
+    assert [(b.parity, len(b.rows), int((b.sign < 0).sum())) for b in pair] == [(None, 7, 3)]
     for geo in (sym, asymmetric_torus):
         two = fax.continuum(geo, both, rho, parity="single")
         np.testing.assert_allclose(fax.continuum(geo, h, rho), two, rtol=1e-10)
