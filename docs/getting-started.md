@@ -55,9 +55,9 @@ fax run case.toml --cache    # persists JAX compilations in ~/.cache/fax/jax (--
 fax plot outputs/case        # figures for an existing results folder
 ```
 
-**Python only:** the fast-ion drive and Landau damping, density profiles, `finite_beta`, solver options (`iters`, `tol`, the
+**Python only:** the fast-ion drive and Landau damping, `finite_beta`, solver options (`iters`, `tol`, the
 returned `Status`), mode classification, every objective (`window_risk`, `continuum_cost`, `gap_closure`, `drive_risk`),
-the VMEC-boundary design path and every derivative. The TOML `[plasma]` table is a uniform density.
+the VMEC-boundary design path and every derivative. The TOML `[plasma]` table takes `density_profile`, polynomial coefficients in `s` that multiply `density`.
 
 `results.npz` always holds `s`, `iota` and `harmonics`. A `continuum` run adds
 `frequencies_hz` (surfaces × harmonics), `gap_center_hz` and `gap_width_hz`
