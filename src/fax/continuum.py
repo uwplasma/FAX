@@ -268,6 +268,8 @@ def on_rows(y: jax.Array, block: Block, size: int) -> jax.Array:
     ``(-m, -n)`` unknown adds its conjugate to row ``(m, n)``."""
     y = y * (-1j if block.parity == -1 else 1)
     x = jnp.zeros((*y.shape[:-1], size), complex)
+    if (block.sign > 0).all():  # one scatter: a sector or a single family
+        return x.at[..., block.rows].set(y)
     for s in (1, -1):
         cols = np.flatnonzero(block.sign == s)
         x = x.at[..., block.rows[cols]].add(y[..., cols] if s == 1 else jnp.conj(y[..., cols]))
