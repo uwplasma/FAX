@@ -118,16 +118,16 @@ global frequencies of precise QA with respect to the boundary coefficients `rc01
 ```
 
 ```text
-('rc01', 'zs01'): frequencies (kHz) [294.113 294.444 294.922], converged True
-risk = 7.4159e-02, d risk / d ('rc01', 'zs01') = [-0.58194804  0.57585933]
-risk along -grad (offsets [-0.001  0.     0.001] ): [0.07497 0.07416 0.07334]
+('rc01', 'zs01'): frequencies (kHz) [245.553 245.764 246.055], converged True
+risk = 7.6684e-02, d risk / d ('rc01', 'zs01') = [-0.07346433 -0.13853066]
+risk along -grad (offsets [-0.001  0.     0.001] ): [0.07684 0.07668 0.07652]
 ```
 
 {func}`fax.prepare_design` builds the static part (VMEX configuration, Boozer tables, FE nodes) once;
 {func}`fax.design_frequencies` is then a traceable function of the boundary offsets, differentiated through the VMEX implicit
 equilibrium ({ref}`vmex-gradients`) and first order only. It returns the solver `Status`, and the frequencies and their tangents are
 NaN unless the solve converged. The run takes a few minutes on a CPU (it compiles the equilibrium adjoint). This is a tiny model
-(three harmonics, 8 × 8 angles, 24 radial nodes, `mboz = nboz = 8`), and its $n = 0$ modes are the continuum-like ones of section 7, so it demonstrates the
+(three harmonics on both signs, 16 × 32 angles, 24 radial nodes, `mboz = nboz = 8`), and its $n = 0$ modes are the continuum-like ones of section 7, so it demonstrates the
 gradient chain, not a gap-mode objective; {doc}`validation` lists what the gradient is checked against and the open $m = 1$ gauge floor.
 
 ## 6. Fast-ion drive of the Könies ITPA TAE
@@ -193,6 +193,9 @@ gap-mode case for three evaluations on a coarser angle grid (about 2 min, not co
   $n_f = 10^{15}(1 - s)^2$ m⁻³ ({func}`fax.geometry_growth_rates`, {func}`fax.drive_risk`). The 4-coefficient run lowers
   $\gamma_\mathrm{max}$ by 4.4% (8500 to 8123 s⁻¹) at QS 1.1e-6 to 1.6e-6; that change is not bounded by an error budget, so it is
   not claimed as a reduction.
+
+The numbers above were computed in the single-sign basis (`parity="single"`). In precise QA the $n = 1$ family is
+self-conjugate ($N_{fp} = 2$), so the default basis changes them; they have not been rerun.
 
 None of these runs shows that the optimized device has fewer Alfvén eigenmodes or lower fast-ion transport: the QA runs move
 selected modes, the QH run a proxy, and the drive is passing-only. The script prints the objective history, aspect, $\iota$, QS,
