@@ -5,7 +5,8 @@ A case file has four tables (every key is optional except ``geometry.source``)::
     [geometry]  source = "boozmn" | "wout" | "vmec" | "circular", path, mboz, nboz, surfaces, ns, ftol, max_iter
     [modes]     n = [2], m_max = 12, m_min = 0
     [plasma]    density = 1e19 (ions/m^3), ion_mass = 2.0 (amu)
-    [run]       task = "continuum" | "eigenmodes", output, ntheta, nzeta, target_khz (0: all modes), count
+    [run]       task = "continuum" | "eigenmodes", output, ntheta, nzeta (0: the smallest unaliased grid), target_khz (0: all
+                modes), count, parity = "auto" (both signs of every harmonic) | "single" (the list as given) | 1 | -1
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "modes": {"n": [1], "m_max": 8, "m_min": 0},
     "plasma": {"density": 1.0e19, "ion_mass": 1.0, "density_profile": [1.0]},
-    "run": {"task": "continuum", "output": "outputs", "ntheta": 32, "nzeta": 32, "target_khz": 0.0, "count": 8},
+    "run": {"task": "continuum", "output": "outputs", "ntheta": 0, "nzeta": 0, "target_khz": 0.0, "count": 8, "parity": "auto"},
 }
 
 
@@ -89,18 +90,19 @@ def run(case: str | Path | dict[str, Any], *, save: bool = True) -> dict[str, An
     p = config["plasma"]
     rho = mass_density(p["density"] * np.polyval(p["density_profile"][::-1], np.asarray(geo.s)), p["ion_mass"])
     out: dict[str, Any] = {"s": geo.s, "iota": geo.iota, "harmonics": harmonics}
+    grid = {key: r[key] or None for key in ("ntheta", "nzeta")} | {"parity": None if r["parity"] == "auto" else r["parity"]}
     if r["task"] == "continuum":
-        f = continuum(geo, harmonics, rho, r["ntheta"], r["nzeta"])
+        f = continuum(geo, harmonics, rho, **grid)
         center, width = gaps(f)
         out.update(frequencies_hz=f, gap_center_hz=center, gap_width_hz=width)
     elif r["task"] == "eigenmodes":
         target = 1e3 * r["target_khz"] if r["target_khz"] > 0 else None
-        modes = eigenmodes(geo, harmonics, rho, target_hz=target, count=r["count"], ntheta=r["ntheta"], nzeta=r["nzeta"])
+        modes = eigenmodes(geo, harmonics, rho, target_hz=target, count=r["count"], **grid)
         out.update(
             mode_s=modes.s,
             frequencies_hz=modes.frequencies_hz[: r["count"]],
             structures=modes.structures[: r["count"]],
-            continuum_hz=continuum(geo, harmonics, rho, r["ntheta"], r["nzeta"]),
+            continuum_hz=continuum(geo, harmonics, rho, **grid),
         )
     else:
         raise ValueError("run.task must be 'continuum' or 'eigenmodes'")

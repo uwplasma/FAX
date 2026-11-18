@@ -20,7 +20,7 @@ import numpy as np
 from .continuum import continuum, continuum_matrices, generalized_eigh, on_rows, spectral_blocks
 from .drive import FastIons, growth_rate
 from .eigen import Status, _hz, eigenmodes, selected, solve, split_solver
-from .geometry import Geometry, from_booz_xform, surface_grid
+from .geometry import Geometry, axisymmetric, from_booz_xform, surface_grid
 
 
 def window_risk(frequencies_hz: Any, window_hz: tuple[float, float], softness_hz: float) -> jax.Array:
@@ -152,7 +152,7 @@ def classify_modes(
     f_b, y_b = f_f[best], y_f[best]
     peak = np.argmax((np.abs(y_b) ** 2).sum(-1), axis=1)
     fine_geo = _nodes(geo, n)
-    branches = np.asarray(continuum(fine_geo, harmonics, density, options.get("ntheta", 32), options.get("nzeta", 32)))[peak]
+    branches = np.asarray(continuum(fine_geo, harmonics, density, options.get("ntheta"), options.get("nzeta")))[peak]
     lower = np.where(branches <= f_b[:, None], branches, 0.0).max(1)
     upper = np.where(branches >= f_b[:, None], branches, np.inf).min(1)
     margin = np.minimum(f_b - lower, upper - f_b) / np.maximum(f_b, 1e-30)
@@ -321,19 +321,13 @@ def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
     return "MAE" if dm == 0 else "HAE"
 
 
-def _axisymmetric(geo: Geometry) -> bool:
-    """True when no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle."""
-    spectra = np.abs(np.concatenate([np.asarray(getattr(geo, k)) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")], -1))
-    return bool(spectra[:, np.tile(np.asarray(geo.xn), 6) != 0].max(initial=0.0) <= 1e-9 * spectra.max())
-
-
 def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
     """Row indices of ``harmonics`` that the equilibrium couples in a real potential: one group per ``|n|`` when the geometry is
     axisymmetric, one per pair ``{N, -N}``, ``N = n mod nfp``, otherwise (``(m, n)`` couples to ``(-m', -n')`` when
     ``n + n'`` is a multiple of ``nfp``, see :func:`fax.continuum.spectral_blocks`). Different groups never couple, so their
     continua are separate spectra."""
     h = np.asarray(harmonics, dtype=int)
-    key = np.abs(h[:, 1]) if _axisymmetric(geo) else np.minimum(np.mod(h[:, 1], geo.nfp), np.mod(-h[:, 1], geo.nfp))
+    key = np.abs(h[:, 1]) if axisymmetric(geo) else np.minimum(np.mod(h[:, 1], geo.nfp), np.mod(-h[:, 1], geo.nfp))
     return [np.flatnonzero(key == k) for k in np.unique(key)]
 
 
@@ -349,7 +343,7 @@ def alfven_harmonics(geo: Geometry, m_max: int = 12, width: float | None = None)
     """
     iota = np.asarray(geo.iota, dtype=float)
     lo, hi = iota.min(), iota.max()
-    if _axisymmetric(geo):
+    if axisymmetric(geo):
         sign = 1 if np.mean(iota) >= 0 else -1
         pairs = [(m, sign * n) for n in (1, 2) for m in range(m_max + 1)]
     else:
@@ -416,8 +410,8 @@ def summary(
     max_gaps: int = 6,
     min_width: float = 0.05,
     edge: float = 0.05,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     iters: int = 100,
     tol: float = 1e-10,
 ) -> dict[str, Any]:

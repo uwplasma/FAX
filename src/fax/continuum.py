@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import solve_triangular
 
-from .geometry import Geometry, check, field_period, surface_grid, symmetric
+from .geometry import Geometry, axisymmetric, check, field_period, surface_grid, symmetric
 
 MU0 = 4.0e-7 * jnp.pi
 AMU = 1.66053906660e-27
@@ -124,8 +124,8 @@ def continuum_matrices(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     pressure: Any = None,
     gamma: float = 5.0 / 3.0,
     parity: int | str | None = None,
@@ -134,7 +134,8 @@ def continuum_matrices(
 
     Raises ``ValueError`` (host inputs only) unless ``rho > 0``, ``G + iota I != 0`` and the grid
     resolves the requested couplings: ``ntheta > 2 max|dm|`` and ``nzeta > 2 max|dn|``, since
-    ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``.
+    ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``. ``None`` picks the smallest
+    such grid, at least 32 (:func:`grid_size`).
 
     ``pressure`` (Pa, a scalar or one value per surface; default ``None`` = off) adds the acoustic coupling of
     :func:`sound_coupling` with adiabatic index ``gamma``: the matrices become ``2H x 2H``, the first ``H`` unknowns the
@@ -149,6 +150,7 @@ def continuum_matrices(
     check_modes(geo, h, density)
     h, project = parity_basis(geo, h, parity)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
+    ntheta, nzeta = grid_size(h, ntheta, nzeta)
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
     period = field_period(geo, nzeta)
@@ -188,6 +190,14 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | str | None) -> tuple
     return jnp.concatenate([h, -h]), project
 
 
+def grid_size(h: Any, ntheta: int | None, nzeta: int | None) -> tuple[int, int]:
+    """``(ntheta, nzeta)``, each ``None`` replaced by ``max(32, 2 max|d| + 2)`` over the harmonic differences: the smallest
+    even grid that does not alias them (a parity sector holds ``(m, n)`` and ``(-m, -n)``, so it needs twice the span)."""
+    h = np.asarray(h, dtype=float).reshape(-1, 2)
+    auto = lambda c: max(32, int(2 * np.ptp(h[:, c]) + 2) if len(h) else 32)  # noqa: E731
+    return (auto(0) if ntheta is None else ntheta), (auto(1) if nzeta is None else nzeta)
+
+
 class Block(NamedTuple):
     """One independent pencil of :func:`spectral_blocks`: assemble ``harmonics`` with ``parity``; its unknown ``k`` is
     ``sign[k]`` times the harmonic of row ``rows[k]`` of the user's list."""
@@ -209,16 +219,15 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     family (``N = -N``: ``N = 0`` or ``nfp / 2``, or ``n = 0`` in a tokamak) is its cosine and sine sectors, real, when the
     geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
     is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
-    earlier are dropped. A traced geometry counts as asymmetric, and as axisymmetric when ``nfp = 1``.
+    earlier are dropped. A traced geometry counts as asymmetric, and as axisymmetric when ``nfp = 1`` (:func:`fax.geometry.axisymmetric`).
     ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
     """
-    h = np.asarray(harmonics, dtype=float)
+    h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
     every = np.arange(len(h))
-    if parity is not None:
+    if parity is not None or not len(h):
         return [Block(h, None if parity == "single" else parity, every, np.ones(len(h)))]
-    keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()])
-    axisymmetric = geo.nfp == 1 if isinstance(geo.xn, jax.core.Tracer) else not np.any(np.asarray(geo.xn))
-    key = (lambda n: n) if axisymmetric else (lambda n: n % geo.nfp)
+    keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()], dtype=int)
+    key = (lambda n: n) if axisymmetric(geo) else (lambda n: n % geo.nfp)
     blocks = []
     for F in dict.fromkeys(key(h[keep, 1])):
         if any(key(-b.harmonics[0, 1]) == F for b in blocks):
@@ -269,8 +278,8 @@ def continuum(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     pressure: Any = None,
     gamma: float = 5.0 / 3.0,
     parity: int | str | None = None,
