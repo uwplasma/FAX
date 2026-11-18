@@ -54,6 +54,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not slow and not scheduled'"
+faulthandler_timeout = 900  # a test stuck for 15 minutes dumps every thread's stack into the log
 markers = [
   "gpu: small-size checks that the GPU CI job runs with -m gpu; they also pass on CPU",
   "slow: minutes-long tests (vmex solves, 64-harmonic AE3D band); the PR coverage job runs them, the per-Python matrix does not",
