@@ -17,20 +17,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .continuum import continuum, continuum_matrices, generalized_eigh
+from .continuum import continuum, continuum_matrices, generalized_eigh, on_rows, spectral_blocks
 from .drive import FastIons, growth_rate
-from .eigen import (
-    Status,
-    _dense_status,
-    _hz,
-    dense,
-    eigenmodes,
-    global_matrices,
-    lowest_eigenvalues,
-    selected,
-    split_solver,
-    targeted_eigenpairs,
-)
+from .eigen import Status, _hz, eigenmodes, selected, solve, split_solver
 from .geometry import Geometry, from_booz_xform, surface_grid
 
 
@@ -296,16 +285,11 @@ def geometry_frequencies(geo: Geometry, design: Design, mode_count: int = 3) -> 
     """
     solver, opts = split_solver(design.options)
     target = opts.pop("target_hz", None)
-    F, G = global_matrices(_nodes(geo, design.nodes), design.harmonics, design.density, **opts)
+    target = None if target is None else (2 * jnp.pi * target) ** 2
+    lam, _, status = solve(_nodes(geo, design.nodes), design.harmonics, design.density, target, **solver, vectors=False, **opts)
     if target is None:
-        K, M = dense(F), dense(G)
-        lam, x = jax.lax.stop_gradient(generalized_eigh(K, M))
-        status = _dense_status(K, M, lam, x, solver.get("tol", 1e-10))._replace(gap=lam[mode_count] - lam[mode_count - 1])
-        omega2 = lowest_eigenvalues(K, M, mode_count)
-    else:
-        lam, _, status = targeted_eigenpairs(F, G, (2 * jnp.pi * target) ** 2, **solver)
-        omega2 = lam[:mode_count]
-    return _reject(_hz(omega2), status, lam), status
+        status = status._replace(gap=jax.lax.stop_gradient(lam[mode_count] - lam[mode_count - 1]))
+    return _reject(_hz(lam[:mode_count]), status, lam), status
 
 
 def design_frequencies(offsets: Any, design: Design, mode_count: int = 3) -> tuple[jax.Array, Status]:
@@ -344,10 +328,12 @@ def _axisymmetric(geo: Geometry) -> bool:
 
 
 def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
-    """Row indices of ``harmonics`` that the equilibrium couples: one group per ``n`` when the geometry is axisymmetric,
-    one per ``n mod nfp`` otherwise. Harmonics of different groups never couple, so their continua are separate spectra."""
+    """Row indices of ``harmonics`` that the equilibrium couples in a real potential: one group per ``|n|`` when the geometry is
+    axisymmetric, one per pair ``{N, -N}``, ``N = n mod nfp``, otherwise (``(m, n)`` couples to ``(-m', -n')`` when
+    ``n + n'`` is a multiple of ``nfp``, see :func:`fax.continuum.spectral_blocks`). Different groups never couple, so their
+    continua are separate spectra."""
     h = np.asarray(harmonics, dtype=int)
-    key = h[:, 1] if _axisymmetric(geo) else np.mod(h[:, 1], geo.nfp)
+    key = np.abs(h[:, 1]) if _axisymmetric(geo) else np.minimum(np.mod(h[:, 1], geo.nfp), np.mod(-h[:, 1], geo.nfp))
     return [np.flatnonzero(key == k) for k in np.unique(key)]
 
 
@@ -402,9 +388,18 @@ def _local_gaps(f: np.ndarray, min_width: float, edge: int) -> list[tuple[int, i
 
 
 def _spectrum(geo: Geometry, h: np.ndarray, rho: Any, pressure: Any, grid: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Sorted continuum (kHz), branch power per unknown and the dominant ``m`` of each branch (NaN for a sound branch)."""
-    w2, x = generalized_eigh(*continuum_matrices(geo, h, rho, pressure=pressure, **grid))
-    power = np.abs(np.asarray(x)) ** 2  # (surfaces, unknowns, branches)
+    """Sorted continuum (kHz), branch power per unknown (the listed harmonics, then their sound unknowns) and the dominant
+    ``m`` of each branch (NaN for a sound branch), from the blocks of :func:`fax.continuum.spectral_blocks`."""
+    w2, power = [], []
+    for b in spectral_blocks(geo, h):
+        lam, y = generalized_eigh(*continuum_matrices(geo, b.harmonics, rho, pressure=pressure, parity=b.parity, **grid))
+        y, n = np.swapaxes(np.asarray(y), 1, 2), len(b.rows)  # (surfaces, branches, unknowns)
+        x = [on_rows(y[..., i : i + n], b, len(h)) for i in range(0, y.shape[-1], n)]  # Alfven, then sound unknowns
+        w2.append(np.asarray(lam))
+        power.append(np.swapaxes(np.abs(np.concatenate(x, -1)) ** 2, 1, 2))
+    order = np.argsort(np.concatenate(w2, -1), -1)
+    w2 = np.take_along_axis(np.concatenate(w2, -1), order, -1)
+    power = np.take_along_axis(np.concatenate(power, -1), order[:, None], -1)  # (surfaces, unknowns, branches)
     dom = np.argmax(power, 1)
     return np.sqrt(np.maximum(np.asarray(w2), 0.0)) / (2 * np.pi) / 1e3, power, np.where(dom < len(h), h[dom % len(h), 0], np.nan)
 
