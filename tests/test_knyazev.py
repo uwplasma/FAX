@@ -76,7 +76,7 @@ def test_parity_sectors_split_the_two_sign_problem_and_cos_is_stellgaps_basis(fx
     sub = {**fx, "sg_s": fx["sg_s"][::8], "sg_khz": fx["sg_khz"][::8]}
     err = kq.continuum_error(sub, 112, 72, parity=1)[0]
     assert err.mean() < 2e-3 and err.max() < 3e-3  # STELLGAP's cos basis: 1.6e-3 mean, 2.6e-3 max on all 98 (single-sign 3.0e-3, 4.3e-3)
-    with pytest.raises(ValueError, match="once up to sign"):
+    with pytest.raises(ValueError, match="once up to sign|distinct"):
         fax.continuum(geo, both, kq.RHO, 112, 72, parity=1)
 
 

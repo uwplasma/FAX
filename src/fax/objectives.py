@@ -17,7 +17,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .continuum import continuum, continuum_matrices, generalized_eigh, on_rows, spectral_blocks
+from .continuum import block_matrices, continuum, continuum_matrices, generalized_eigh, on_rows, spectral_blocks
 from .drive import FastIons, growth_rate
 from .eigen import Status, _hz, eigenmodes, selected, solve, split_solver
 from .geometry import Geometry, axisymmetric, from_booz_xform, surface_grid
@@ -384,9 +384,10 @@ def _local_gaps(f: np.ndarray, min_width: float, edge: int) -> list[tuple[int, i
 def _spectrum(geo: Geometry, h: np.ndarray, rho: Any, pressure: Any, grid: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sorted continuum (kHz), branch power per unknown (the listed harmonics, then their sound unknowns) and the dominant
     ``m`` of each branch (NaN for a sound branch), from the blocks of :func:`fax.continuum.spectral_blocks`."""
-    w2, power = [], []
+    w2, power, cache = [], [], {}
+    assemble = lambda hb, p: continuum_matrices(geo, hb, rho, pressure=pressure, parity=p, **grid)  # noqa: E731
     for b in spectral_blocks(geo, h):
-        lam, y = generalized_eigh(*continuum_matrices(geo, b.harmonics, rho, pressure=pressure, parity=b.parity, **grid))
+        lam, y = generalized_eigh(*block_matrices(assemble, geo, b, cache))
         y, n = np.swapaxes(np.asarray(y), 1, 2), len(b.rows)  # (surfaces, branches, unknowns)
         x = [on_rows(y[..., i : i + n], b, len(h)) for i in range(0, y.shape[-1], n)]  # Alfven, then sound unknowns
         w2.append(np.asarray(lam))

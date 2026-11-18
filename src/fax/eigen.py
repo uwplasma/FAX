@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 import solvax
 
-from .continuum import MU0, angle_mean, check_modes, generalized_eigh, grid_size, on_rows, parity_basis, spectral_blocks
+from .continuum import MU0, angle_mean, block_matrices, check_modes, generalized_eigh, grid_size, on_rows, parity_basis, spectral_blocks
 from .geometry import Geometry, _d_ds, check, field_period, surface_grid, symmetric
 
 
@@ -369,9 +369,10 @@ def solve(
     h = np.asarray(harmonics, dtype=float)
     blocks = spectral_blocks(geo, h, parity)
     plain = len(blocks) == 1 and blocks[0].parity is None and (blocks[0].sign > 0).all() and (blocks[0].rows == np.arange(len(h))).all()
-    parts = []
+    parts, cache = [], {}
+    assemble = lambda h, p: global_matrices(geo, h, density, parity=p, **grid)  # noqa: E731
     for b in blocks:
-        F, G = global_matrices(geo, b.harmonics, density, parity=b.parity, **grid)
+        F, G = block_matrices(assemble, geo, b, cache)
         N, H = F.diag.shape[:2]
         if target is None:
             K, M = dense(F), dense(G)

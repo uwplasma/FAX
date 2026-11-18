@@ -251,6 +251,17 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     return blocks
 
 
+def block_matrices(assemble: Any, geo: Geometry, block: Block, cache: dict) -> Any:
+    """``assemble(harmonics, parity)`` for ``block``. The cosine and sine sectors of a family without ``(0, 0)`` are projected
+    from one assembly on both signs, kept in ``cache``, instead of assembling it twice."""
+    if block.parity not in (1, -1) or not (block.harmonics != 0).any(1).all():
+        return assemble(block.harmonics, block.parity)
+    key = block.rows.tobytes()
+    if key not in cache:
+        cache[key] = assemble(np.concatenate([block.harmonics, -block.harmonics]), "single")
+    return jax.tree_util.tree_map(parity_basis(geo, jnp.asarray(block.harmonics), block.parity)[1], cache[key])
+
+
 def on_rows(y: jax.Array, block: Block, size: int) -> jax.Array:
     """Vectors ``y`` (last axis the block's unknowns) as complex coefficients ``x`` of the user's harmonics, the potential
     being ``Re sum_j x_j exp(i(m_j theta - n_j zeta))``: a cosine-sector vector is ``x``, a sine-sector one ``-i x``, and a
@@ -291,10 +302,9 @@ def continuum(
     """Continuum frequencies in Hz, sorted on each surface: every branch of the real potential on ``harmonics``
     (:func:`spectral_blocks`; twice as many with ``pressure``, see :func:`continuum_matrices`). ``parity="single"`` is the
     single-sign list as given (one branch per harmonic), ``1`` or ``-1`` one stellarator-symmetric sector."""
-    w2 = [
-        generalized_eigh(*continuum_matrices(geo, b.harmonics, density, ntheta, nzeta, pressure, gamma, b.parity))[0]
-        for b in spectral_blocks(geo, harmonics, parity)
-    ]
+    cache: dict = {}
+    assemble = lambda h, p: continuum_matrices(geo, h, density, ntheta, nzeta, pressure, gamma, p)  # noqa: E731
+    w2 = [generalized_eigh(*block_matrices(assemble, geo, b, cache))[0] for b in spectral_blocks(geo, harmonics, parity)]
     return jnp.sqrt(jnp.maximum(jnp.sort(jnp.concatenate(w2, -1), -1), 0.0)) / (2.0 * jnp.pi)
 
 
