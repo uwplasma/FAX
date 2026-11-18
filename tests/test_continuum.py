@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import fax
-from fax.continuum import MU0, generalized_eigh
+from fax.continuum import MU0, generalized_eigh, spectral_blocks
 from fax.eigen import dense, global_matrices
 from fax.geometry import symmetric
 
@@ -221,6 +221,36 @@ def test_symmetric_geometry_is_solved_in_real_arithmetic(asymmetric_torus):
     modes = lambda g, **t: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8, **t).omega2  # noqa: E731
     for target in ({}, {"target_hz": 2e5, "count": 4}):
         np.testing.assert_allclose(modes(geo, **target), jax.jit(lambda g, t=target: modes(g, **t))(geo), rtol=1e-11)
+
+
+def test_default_basis_is_both_signs_split_into_independent_blocks(asymmetric_torus):
+    """n = 0 in a tokamak couples (m, 0) to (-m', 0): the default is the cos and sin sectors (symmetric geometry) or one
+    complex pencil on both signs (asymmetric or traced), the spectrum of the two-sign list either way; n != 0 is unchanged."""
+    sym = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1)
+    h, both, rho = fax.mode_family(0, 4, 1), np.concatenate([fax.mode_family(0, 4, 1), -fax.mode_family(0, 4, 1)]), 3.4e-8
+    assert [(b.parity, len(b.rows)) for b in spectral_blocks(sym, h)] == [(1, 4), (-1, 4)]
+    assert [(b.parity, len(b.rows)) for b in spectral_blocks(asymmetric_torus, h)] == [(None, 8)]
+    assert [b.parity for b in spectral_blocks(sym, fax.mode_family(1, 4))] == [None]  # n != 0 alone: the single-sign list
+    for geo in (sym, asymmetric_torus):
+        two = fax.continuum(geo, both, rho, parity="single")
+        np.testing.assert_allclose(fax.continuum(geo, h, rho), two, rtol=1e-10)
+        np.testing.assert_allclose(jax.jit(lambda g: fax.continuum(g, h, rho))(geo), two, rtol=1e-10)  # traced: one pencil
+        assert np.abs(fax.continuum(geo, h, rho, parity="single")[:, :4] - two[:, ::2]).max() > 1e-3 * two.max()
+        ref = fax.eigenmodes(geo, both, rho, parity="single")
+        full = fax.eigenmodes(geo, h, rho)
+        np.testing.assert_allclose(full.omega2, ref.omega2, rtol=1e-10)
+        mid = float(np.median(ref.frequencies_hz))
+        near = fax.eigenmodes(geo, h, rho, target_hz=mid, count=6)
+        np.testing.assert_allclose(near.omega2, np.sort(ref.omega2[np.argsort(np.abs(ref.omega2 - (2 * np.pi * mid) ** 2))[:6]]), rtol=1e-9)
+        assert near.status.converged and full.structures.shape == (len(ref.omega2), 9, 4)
+        F, G = (dense(A) for A in global_matrices(geo, both, rho))  # every mode, mapped to the listed harmonics,
+        y = np.concatenate([full.structures, np.conj(full.structures)], -1).reshape(len(full.omega2), -1)  # is an eigenvector
+        r = np.linalg.norm(y @ F.T - full.omega2[:, None] * (y @ G.T), axis=1) / np.linalg.norm(y @ F.T, axis=1)
+        assert r.max() < 1e-8
+    f = lambda r, g=sym: fax.frequency_hz(g, h, r, 2, 3)  # noqa: E731
+    np.testing.assert_allclose(jax.grad(f)(rho), -f(rho) / (2 * rho), rtol=1e-8)
+    loss = lambda e: fax.frequency_hz(fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=e), h, rho, 2, 3)  # noqa: E731
+    assert jax.grad(loss)(0.1) == pytest.approx((loss(0.1 + 1e-5) - loss(0.1 - 1e-5)) / 2e-5, rel=1e-5)
 
 
 def test_booz_xform_output_dictionary_matches_the_file_reader():

@@ -30,7 +30,7 @@ import fax
 
 RESEARCH = False  # True: 16 evaluations on a finer angle grid, the QH case and two more QA objectives (continuum minima, fast-ion drive)
 RUNS = [("qa", "gap", False)] + [("qh", "gap", False), ("qa", "continuum", False), ("qa", "gap", True)] * RESEARCH  # case, modes, drive
-NS, NODES, GRID, NFEV = (16, 24, 16, 16) if RESEARCH else (16, 24, 12, 3)  # VMEC surfaces, FE nodes, angle grid, least-squares evaluations
+NS, NODES, GRID, NFEV = (16, 24, 24, 16) if RESEARCH else (16, 24, 24, 3)  # VMEC surfaces, FE nodes, angle grid, least-squares evaluations
 OUT = Path(".")  # figure folder
 
 DATA = Path(__file__).resolve().parent / "data"
@@ -53,7 +53,7 @@ CASES = {
 }
 MODES = {  # QA global modes: the n = 1 gap modes (102-104 kHz in the 96-142 kHz gap) or the n = 0 continuum minima
     "gap": dict(harmonics=fax.mode_family((1, -1, 3), 5), ntheta=GRID, nzeta=GRID, target_hz=103e3, count=2),
-    "continuum": dict(harmonics=fax.mode_family(0, 3, 1), ntheta=8, nzeta=8),
+    "continuum": dict(harmonics=fax.mode_family(0, 3, 1), ntheta=16, nzeta=16),
 }
 DRIVE_MODES = dict(harmonics=fax.mode_family((1, -1, 3), 5), ntheta=GRID, nzeta=GRID, target_hz=104e3, count=4)  # four n = 1 modes
 DENSITY = {"qh": fax.mass_density(1e20), "qa": 3.4e-8}  # QA: a few hundred kHz on the 1 m device

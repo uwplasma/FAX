@@ -19,6 +19,7 @@ fast-ion drive, with first-order derivatives with respect to profiles and, throu
 | Supported | Not supported |
 |---|---|
 | Low-β continuum on each Boozer surface (STELLGAP form) | Sound coupling in the global modes, so no BAE or BAAE eigenmodes (the continuum has it, opt-in) |
+| Real potentials: each harmonic on both signs, solved as cosine and sine sectors for stellarator-symmetric geometry | The drive of a sector (standing-wave) mode is computed as for a travelling one |
 | AE3D-form reduced ideal-MHD global modes, signed $\omega^2$ | Continuum damping and electron damping |
 | `finite_beta=True`: restricted $J_\parallel$ and pressure terms (experimental) | A full-MHD or compressional model |
 | Drive of a fixed mode: zero orbit width, passing ions only | Trapped particles, finite orbit width, finite Larmor radius |

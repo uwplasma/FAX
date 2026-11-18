@@ -150,7 +150,7 @@ def continuum_matrices(
     check_modes(geo, h, density)
     h, project = parity_basis(geo, h, parity)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
-    ntheta, nzeta = grid_size(h, ntheta, nzeta)
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
     period = field_period(geo, nzeta)
@@ -190,10 +190,14 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | str | None) -> tuple
     return jnp.concatenate([h, -h]), project
 
 
-def grid_size(h: Any, ntheta: int | None, nzeta: int | None) -> tuple[int, int]:
-    """``(ntheta, nzeta)``, each ``None`` replaced by ``max(32, 2 max|d| + 2)`` over the harmonic differences: the smallest
-    even grid that does not alias them (a parity sector holds ``(m, n)`` and ``(-m, -n)``, so it needs twice the span)."""
-    h = np.asarray(h, dtype=float).reshape(-1, 2)
+def grid_size(harmonics: Any, ntheta: int | None, nzeta: int | None, parity: Any = None) -> tuple[int, int]:
+    """``(ntheta, nzeta)``, each ``None`` replaced by ``max(32, 2 max|d| + 2)`` over the differences of the assembled harmonics:
+    the smallest even grid that does not alias them (a parity sector holds ``(m, n)`` and ``(-m, -n)``, so it needs twice the
+    span). Traced harmonics give 32."""
+    if isinstance(harmonics, jax.core.Tracer):
+        return ntheta or 32, nzeta or 32
+    h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
+    h = np.concatenate([h, -h]) if parity in (1, -1) else h
     auto = lambda c: max(32, int(2 * np.ptp(h[:, c]) + 2) if len(h) else 32)  # noqa: E731
     return (auto(0) if ntheta is None else ntheta), (auto(1) if nzeta is None else nzeta)
 
