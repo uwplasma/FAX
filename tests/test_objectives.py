@@ -170,12 +170,13 @@ def test_summary_tae_gap_and_mode(tmp_path):
 
 
 def test_mode_families_split_uncoupled_harmonics():
-    """Different n never couple in a tokamak; in a stellarator only n mod nfp is conserved."""
+    """A real potential couples n to -n' when n + n' is a multiple of nfp: in a tokamak the groups are |n|, in a stellarator
+    the pairs {N, -N} of N = n mod nfp."""
     geo = fax.circular_torus(epsilon_B=0.2, nfp=3)
     h = fax.mode_family((-1, 0, 1, 2, 3), 2, 0)
-    assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(geo, h)] == [[-1], [0], [1], [2], [3]]
+    assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(geo, h)] == [[0], [-1, 1], [2], [3]]
     stell = replace(geo, xn=geo.xn.at[2].set(3.0))  # a helical harmonic of the boundary shift
-    assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(stell, h)] == [[0, 3], [1], [-1, 2]]
+    assert [np.unique(np.asarray(h)[r, 1]).tolist() for r in fax.mode_families(stell, h)] == [[0, 3], [-1, 1, 2]]
 
 
 def test_alfven_harmonics_follow_the_sign_of_iota_and_conjugate_families_agree():
