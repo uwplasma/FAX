@@ -125,7 +125,7 @@ def test_inputs_are_validated_on_the_host():
         fax.continuum(geo, h, rho, 8, 4)  # dm = 8 wraps onto dm = 0
     assert np.isfinite(fax.continuum(fax.circular_torus(epsilon_B=0.1), h, rho, 17, 4)).all()
     with pytest.raises(ValueError, match="aliases"):
-        fax.continuum(geo, [[1.0, 0.0], [1.0, 2.0]], rho, 32, 4)
+        fax.continuum(geo, [[1.0, 0.0], [1.0, 2.0]], rho, 32, 4, parity="single")  # by default n = 0 and 2 are separate blocks
     with pytest.raises(ValueError, match="density"):
         fax.continuum(geo, h, 0.0, 32, 4)
     with pytest.raises(ValueError, match="increasing"):
