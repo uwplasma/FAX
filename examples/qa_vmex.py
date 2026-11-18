@@ -31,7 +31,7 @@ else:
 STEPS = np.array([-2, -1, 0, 1, 2] if RESEARCH else [-1, 0, 1]) * 1e-3  # offsets along -grad of the line scan
 
 design = fax.prepare_design(
-    DECK, harmonics=HARMONICS, density=DENSITY, parameters=PARAMETERS, ns=NS, nodes=NODES, mboz=MBOZ, nboz=NBOZ, ntheta=16, nzeta=16, **TARGET
+    DECK, harmonics=HARMONICS, density=DENSITY, parameters=PARAMETERS, ns=NS, nodes=NODES, mboz=MBOZ, nboz=NBOZ, ntheta=16, **TARGET
 )
 objective = lambda p: fax.window_risk(fax.design_frequencies(p, design, MODES)[0], WINDOW_HZ, SOFTNESS_HZ)  # noqa: E731
 p0 = jnp.zeros(len(PARAMETERS))
