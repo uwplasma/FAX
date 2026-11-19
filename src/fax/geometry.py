@@ -9,7 +9,7 @@ tabulated in ``docs/theory.md``, section 1.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -28,6 +28,11 @@ class Geometry:
     ``G`` and ``I`` are the Boozer covariant components, ``B = G grad(zeta) +
     I grad(theta) + K grad(psi)``, so the Boozer Jacobian is ``(G + iota I) / B^2``
     and the embedding Jacobian ``psi' (G + iota I) / B^2`` (see :func:`jacobian_check`).
+
+    ``stellsym``, ``axisymmetric`` and ``nfp_periodic`` (every ``xn`` a multiple of ``nfp``) are static fields: each
+    construction from concrete arrays, ``dataclasses.replace`` included, computes them; traced arrays keep the values
+    passed in (``False`` unless the constructor states them). Under ``jax.jit``, ``grad`` and ``vmap`` they choose the
+    real path, the coupled families and the one-period average.
     """
 
     s: jax.Array
@@ -47,13 +52,21 @@ class Geometry:
     G: jax.Array
     I: jax.Array  # noqa: E741 - standard Boozer notation
     nfp: int = 1
+    stellsym: bool = False
+    axisymmetric: bool = False
+    nfp_periodic: bool = False
+
+    def __post_init__(self) -> None:
+        for name, value in _facts(self).items():
+            object.__setattr__(self, name, value)
 
     @classmethod
     def from_arrays(cls, nfp: int, **arrays: Any) -> Geometry:
-        """Build a geometry (traceable), filling missing asymmetric harmonics with zeros."""
+        """Build a geometry (traceable), filling missing asymmetric harmonics with zeros; symmetry facts given by keyword
+        (``stellsym=True``, ...) are kept when the arrays that decide them are traced."""
         zeros = jnp.zeros_like(jnp.asarray(arrays["bmnc"], dtype=float))
-        values = {f.name: jnp.asarray(arrays.get(f.name, zeros), dtype=float) for f in fields(cls) if f.name != "nfp"}
-        return cls(**values, nfp=int(nfp))
+        values = {name: jnp.asarray(arrays.get(name, zeros), dtype=float) for name in _ARRAYS}
+        return cls(**values, nfp=int(nfp), **{name: bool(arrays[name]) for name in _STATIC[1:] if name in arrays})
 
     def surfaces(self, index: Any) -> Geometry:
         """Return the geometry restricted to the given surface indices."""
@@ -92,17 +105,43 @@ def check(ok: Any, message: str) -> None:
 
 
 def symmetric(geo: Geometry) -> bool:
-    """Whether ``geo`` is stellarator symmetric: every asymmetric harmonic is a host zero (traced arrays count as asymmetric).
+    """Whether ``geo`` is stellarator symmetric: every asymmetric harmonic is zero (on the host), or ``geo.stellsym`` (traced).
 
     Then ``(theta, zeta) -> (-theta, -zeta)`` commutes with the operators, so their matrices in ``exp(i(m theta - n zeta))``
     are real and the eigenproblems are solved in real arithmetic.
     """
-    arrays = (geo.bmns, geo.rmns, geo.zmnc, geo.pmnc, geo.gmns)
-    return not any(isinstance(a, jax.core.Tracer) for a in arrays) and not any(np.any(np.asarray(a)) for a in arrays)
+    return _facts(geo).get("stellsym", geo.stellsym)
+
+
+def _facts(geo: Geometry) -> dict[str, bool]:
+    """The symmetry facts that the concrete arrays of ``geo`` decide; a fact whose arrays are traced is left out."""
+    concrete = lambda *arrays: not any(isinstance(a, jax.core.Tracer) for a in arrays)  # noqa: E731
+    asym, spectra = (geo.bmns, geo.rmns, geo.zmnc, geo.pmnc, geo.gmns), (geo.bmnc, geo.bmns, geo.rmnc, geo.rmns, geo.zmns, geo.zmnc)
+    facts = {"stellsym": not any(np.any(np.asarray(a)) for a in asym)} if concrete(*asym) else {}
+    if concrete(geo.xn):
+        facts["nfp_periodic"] = not np.any(np.asarray(geo.xn) % geo.nfp)
+    if concrete(geo.xn, *spectra):
+        c = np.abs(np.concatenate([np.asarray(a) for a in spectra], -1))
+        facts["axisymmetric"] = bool(c[:, np.tile(np.asarray(geo.xn), 6) != 0].max(initial=0.0) <= 1e-9 * c.max())
+    return facts
+
+
+def _unflatten(static: tuple, arrays: tuple) -> Geometry:
+    # leaves may be tracers, cotangents or placeholders: keep the facts of the tree structure, skip __post_init__
+    geo = object.__new__(Geometry)
+    for name, value in zip((*_ARRAYS, *_STATIC), (*arrays, *static), strict=True):
+        object.__setattr__(geo, name, value)
+    return geo
 
 
 _ARRAYS = ("s", "xm", "xn", *_MODES, "iota", "G", "I")
-jax.tree_util.register_dataclass(Geometry, data_fields=list(_ARRAYS), meta_fields=["nfp"])
+_STATIC = ("nfp", "stellsym", "axisymmetric", "nfp_periodic")
+jax.tree_util.register_pytree_with_keys(
+    Geometry,
+    lambda g: ([(jax.tree_util.GetAttrKey(k), getattr(g, k)) for k in _ARRAYS], tuple(getattr(g, k) for k in _STATIC)),
+    _unflatten,
+    lambda g: ([getattr(g, k) for k in _ARRAYS], tuple(getattr(g, k) for k in _STATIC)),
+)
 
 
 class SurfaceGrid(NamedTuple):
@@ -245,6 +284,9 @@ def circular_torus(
     shift = 0.5 * minor_radius * epsilon_B * s  # r cos(theta + eps sin) ~ r cos - r eps (1 - cos 2 theta) / 2
     return Geometry.from_arrays(
         nfp,
+        stellsym=True,
+        axisymmetric=True,
+        nfp_periodic=True,
         s=s,
         xm=xm,
         xn=xn,
@@ -287,11 +329,9 @@ def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32, period: int =
 def field_period(geo: Geometry, nzeta: int) -> int:
     """``nfp`` when ``nzeta`` points over a turn are ``nfp`` copies of one field period (every ``xn`` a multiple of ``nfp``), else 1.
 
-    The condition on ``xn`` is checked on the host; a traced ``xn`` cannot be checked, so it gets the full turn (1).
+    The condition on ``xn`` is checked on the host; a traced ``xn`` uses the static ``geo.nfp_periodic``.
     """
-    if isinstance(geo.xn, jax.core.Tracer):
-        return 1
-    return geo.nfp if nzeta % geo.nfp == 0 and not np.any(np.asarray(geo.xn) % geo.nfp) else 1
+    return geo.nfp if nzeta % geo.nfp == 0 and _facts(geo).get("nfp_periodic", geo.nfp_periodic) else 1
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
