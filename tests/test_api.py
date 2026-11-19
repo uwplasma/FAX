@@ -1,8 +1,6 @@
 """Drive screen, objectives, TOML runs, CLI and plotting."""
 
-import importlib
-import sys
-import types
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 
@@ -129,14 +127,12 @@ def test_geometry_source_is_validated():
         fax.io.geometry(fax.load({"geometry": {"source": "gs2"}}))
 
 
-def test_toml_reader_falls_back_to_tomli(monkeypatch):
-    fallback = types.ModuleType("tomli")
-    with monkeypatch.context() as patch:
-        patch.setitem(sys.modules, "tomllib", None)  # ``import tomllib`` now raises ImportError
-        patch.setitem(sys.modules, "tomli", fallback)
-        assert importlib.reload(fax.io).tomllib is fallback
-    assert importlib.reload(fax.io).tomllib is not fallback
-    assert fax.load({})["modes"]["n"] == [1]
+def test_toml_reader_is_the_standard_library():
+    """Python 3.11 is the floor, so case files are read with ``tomllib`` and ``tomli`` is not a dependency."""
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]
+    assert project["requires-python"] == ">=3.11"
+    assert not [d for d in project["dependencies"] if d.startswith("tomli")]
+    assert fax.io.tomllib is tomllib
 
 
 def test_documented_transforms_and_failure_behaviour():

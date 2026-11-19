@@ -12,16 +12,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import jax
 import numpy as np
-
-try:
-    import tomllib
-except ImportError:  # Python 3.10
-    import tomli as tomllib
 
 from .continuum import continuum, gaps, mass_density, mode_family
 from .eigen import eigenmodes
