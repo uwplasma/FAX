@@ -159,6 +159,10 @@ def test_stellarator_drive_gradient_and_sidebands():
     pairs, gam = fax.growth_rate(
         jnp.sqrt(ev.omega2[-1]), ev.structures[-1], geo, design.harmonics, ions, 3.4e-8, ntheta=32, nzeta=32, resolved=True
     )
+    standing = fax.growth_rate(
+        jnp.sqrt(ev.omega2[-1]), ev.structures[-1], geo, design.harmonics, ions, 3.4e-8, ntheta=32, nzeta=32, standing=True
+    )
+    np.testing.assert_allclose(fax.geometry_growth_rates(g0, design, ions, 4, ntheta=32, nzeta=32)[-1], standing, rtol=1e-8)  # sector modes
     side = jnp.sum(jnp.where(pairs[:, 1] != 1, gam, 0.0))
     pure = jnp.sum(jnp.where(jnp.abs(pairs[:, 1]) > 3, jnp.abs(gam), 0.0))  # k = -3, 5: only through the helical B harmonics
     assert jnp.all(jnp.isfinite(gam)) and 1e-6 < abs(side / jnp.sum(gam)) < 1e-2 and pure > 0
