@@ -327,11 +327,14 @@ def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32, period: int =
 
 
 def field_period(geo: Geometry, nzeta: int) -> int:
-    """``nfp`` when ``nzeta`` points over a turn are ``nfp`` copies of one field period (every ``xn`` a multiple of ``nfp``), else 1.
+    """``nfp`` when ``nzeta`` points over a turn are ``nfp`` copies of one field period, else 1.
 
-    The condition on ``xn`` is checked on the host; a traced ``xn`` uses the static ``geo.nfp_periodic``.
+    Every ``xn`` must be a multiple of ``nfp``, else ``ValueError``: read from the arrays on the host and from the static
+    ``geo.nfp_periodic`` when ``xn`` is traced.
     """
-    return geo.nfp if nzeta % geo.nfp == 0 and _facts(geo).get("nfp_periodic", geo.nfp_periodic) else 1
+    periodic = _facts(geo).get("nfp_periodic", geo.nfp_periodic)
+    check(periodic, f"every toroidal number xn must be a multiple of nfp={geo.nfp}")
+    return geo.nfp if nzeta % geo.nfp == 0 else 1
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
