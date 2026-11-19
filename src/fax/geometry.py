@@ -9,7 +9,7 @@ tabulated in ``docs/theory.md``, section 1.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -28,6 +28,16 @@ class Geometry:
     ``G`` and ``I`` are the Boozer covariant components, ``B = G grad(zeta) +
     I grad(theta) + K grad(psi)``, so the Boozer Jacobian is ``(G + iota I) / B^2``
     and the embedding Jacobian ``psi' (G + iota I) / B^2`` (see :func:`jacobian_check`).
+
+    ``stellsym`` (every asymmetric harmonic exactly zero), ``axisymmetric`` (every ``xn != 0`` harmonic of ``|B|``, ``R``,
+    ``Z`` below 1e-9 of the largest, the rule of main, which tolerates the round-off of a Boozer transform of a tokamak) and
+    ``nfp_periodic`` (every ``xn`` a multiple of ``nfp``) are static fields, not arguments. Each construction computes them
+    from the arrays it is given when they are concrete, ``from_arrays`` from its inputs before conversion, so also under
+    ``jax.jit``; a fact whose arrays are traced is ``None`` (unknown: complex path, every family coupled, full turn) unless
+    a constructor states it (``from_arrays(..., axisymmetric=True)``). ``dataclasses.replace`` recomputes them, so traced
+    arrays never inherit facts they may break. Under ``jax.jit``, ``grad`` and ``vmap`` they choose the real path, the
+    coupled families and the one-period average. ``jax.tree_util.tree_map`` keeps the facts of its first argument: after a
+    map that changes the asymmetric harmonics or ``xn``, rebuild with ``dataclasses.replace(geo)`` on the host.
     """
 
     s: jax.Array
@@ -47,18 +57,27 @@ class Geometry:
     G: jax.Array
     I: jax.Array  # noqa: E741 - standard Boozer notation
     nfp: int = 1
+    stellsym: bool | None = field(default=None, init=False)
+    axisymmetric: bool | None = field(default=None, init=False)
+    nfp_periodic: bool | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        _set_facts(self, _facts(lambda name: getattr(self, name), self.nfp))
 
     @classmethod
     def from_arrays(cls, nfp: int, **arrays: Any) -> Geometry:
-        """Build a geometry (traceable), filling missing asymmetric harmonics with zeros."""
+        """Build a geometry (traceable), filling missing asymmetric harmonics with zeros. The facts come from the inputs
+        before conversion (an absent array is zero); a fact given by keyword (``axisymmetric=True``, ...) holds where they
+        are traced."""
+        stated = {name: bool(arrays.pop(name)) for name in _STATIC[1:] if name in arrays}
         zeros = jnp.zeros_like(jnp.asarray(arrays["bmnc"], dtype=float))
-        values = {f.name: jnp.asarray(arrays.get(f.name, zeros), dtype=float) for f in fields(cls) if f.name != "nfp"}
-        return cls(**values, nfp=int(nfp))
+        geo = cls(**{name: jnp.asarray(arrays.get(name, zeros), dtype=float) for name in _ARRAYS}, nfp=int(nfp))
+        return _set_facts(geo, {**stated, **_facts(arrays.get, int(nfp))})
 
     def surfaces(self, index: Any) -> Geometry:
         """Return the geometry restricted to the given surface indices."""
         sliced = {name: getattr(self, name)[index] for name in ("s", "iota", "G", "I", *_MODES)}
-        return replace(self, **sliced)
+        return _set_facts(replace(self, **sliced), _known(self))  # slicing keeps every symmetry
 
     def interpolate(self, s: Any) -> Geometry:
         """Piecewise-linear interpolation in ``s`` onto new surfaces, extrapolated linearly to ``s = 0`` and ``1``.
@@ -78,7 +97,8 @@ class Geometry:
             regular = a[0] * (s[:, None] / self.s[0]) ** (0.5 * self.xm)
             return jnp.where(axis, regular, jax.vmap(lambda c: jnp.interp(s, x, c), 1, 1)(b))
 
-        return replace(self, s=s, **{name: line(getattr(self, name)) for name in ("iota", "G", "I", *_MODES)})
+        new = replace(self, s=s, **{name: line(getattr(self, name)) for name in ("iota", "G", "I", *_MODES)})
+        return _set_facts(new, _known(self))  # interpolation maps zero harmonics to zero and keeps xn
 
     def full_mesh(self) -> Geometry:
         """Average neighbouring half-mesh surfaces onto the VMEC full mesh, as STELLGAP and AE3D do."""
@@ -92,17 +112,67 @@ def check(ok: Any, message: str) -> None:
 
 
 def symmetric(geo: Geometry) -> bool:
-    """Whether ``geo`` is stellarator symmetric: every asymmetric harmonic is a host zero (traced arrays count as asymmetric).
+    """Whether ``geo`` is stellarator symmetric: every asymmetric harmonic is zero (on the host), or ``geo.stellsym`` (traced).
 
     Then ``(theta, zeta) -> (-theta, -zeta)`` commutes with the operators, so their matrices in ``exp(i(m theta - n zeta))``
     are real and the eigenproblems are solved in real arithmetic.
     """
-    arrays = (geo.bmns, geo.rmns, geo.zmnc, geo.pmnc, geo.gmns)
-    return not any(isinstance(a, jax.core.Tracer) for a in arrays) and not any(np.any(np.asarray(a)) for a in arrays)
+    return bool(_fact(geo, "stellsym"))
+
+
+def _fact(geo: Geometry, name: str) -> bool | None:
+    """A symmetry fact of ``geo``: from its arrays when they are concrete, else the static field (``None`` when unknown)."""
+    return _facts(lambda key: getattr(geo, key), geo.nfp).get(name, getattr(geo, name))
+
+
+def _facts(get: Any, nfp: int) -> dict[str, bool]:
+    """The symmetry facts that concrete arrays decide; ``get(name)`` is ``None`` for an absent (zero) array, and a fact
+    whose arrays are traced is left out."""
+
+    def host(*names: str) -> list[np.ndarray] | None:
+        values = [get(name) for name in names]
+        return None if any(isinstance(v, jax.core.Tracer) for v in values) else [np.asarray(v) for v in values if v is not None]
+
+    facts = {}
+    if (asym := host("bmns", "rmns", "zmnc", "pmnc", "gmns")) is not None:
+        facts["stellsym"] = not any(np.any(a) for a in asym)
+    if (xn := host("xn")) is not None:
+        facts["nfp_periodic"] = not np.any(xn[0] % nfp)
+    if xn is not None and (spectra := host("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")) is not None:
+        top = max(np.abs(a).max(initial=0.0) for a in spectra)
+        facts["axisymmetric"] = all(np.abs(a[..., xn[0] != 0]).max(initial=0.0) <= 1e-9 * top for a in spectra)
+    return facts
+
+
+def _known(geo: Geometry) -> dict[str, bool]:
+    """The facts of ``geo`` that are not ``None``."""
+    return {name: getattr(geo, name) for name in _STATIC[1:] if getattr(geo, name) is not None}
+
+
+def _set_facts(geo: Geometry, facts: dict[str, bool]) -> Geometry:
+    """Fill the facts of ``geo`` that its own arrays left unknown."""
+    for name, value in facts.items():
+        if getattr(geo, name) is None:
+            object.__setattr__(geo, name, bool(value))
+    return geo
+
+
+def _unflatten(static: tuple, arrays: tuple) -> Geometry:
+    # leaves may be tracers, cotangents or placeholders: keep the facts of the tree structure, skip __post_init__
+    geo = object.__new__(Geometry)
+    for name, value in zip((*_ARRAYS, *_STATIC), (*arrays, *static), strict=True):
+        object.__setattr__(geo, name, value)
+    return geo
 
 
 _ARRAYS = ("s", "xm", "xn", *_MODES, "iota", "G", "I")
-jax.tree_util.register_dataclass(Geometry, data_fields=list(_ARRAYS), meta_fields=["nfp"])
+_STATIC = ("nfp", "stellsym", "axisymmetric", "nfp_periodic")
+jax.tree_util.register_pytree_with_keys(
+    Geometry,
+    lambda g: ([(jax.tree_util.GetAttrKey(k), getattr(g, k)) for k in _ARRAYS], tuple(getattr(g, k) for k in _STATIC)),
+    _unflatten,
+    lambda g: ([getattr(g, k) for k in _ARRAYS], tuple(getattr(g, k) for k in _STATIC)),
+)
 
 
 class SurfaceGrid(NamedTuple):
@@ -154,8 +224,11 @@ def _surface_major(variable: Any) -> np.ndarray:
     return array.T if variable.dimensions[0] == "mn_modes" else array
 
 
-def from_booz_xform(output: dict[str, Any], s: Any, nfp: int) -> Geometry:
-    """Convert a ``booz_xform_jax`` output or a ``vmex.core.omnigenity.boozer_spectrum_state`` dictionary (traceable)."""
+def from_booz_xform(output: dict[str, Any], s: Any, nfp: int, **facts: bool) -> Geometry:
+    """Convert a ``booz_xform_jax`` output or a ``vmex.core.omnigenity.boozer_spectrum_state`` dictionary (traceable).
+
+    ``facts`` (``stellsym``, ``axisymmetric``, ``nfp_periodic``) state what traced arrays cannot show, for example
+    ``stellsym=True`` for the all-zero traced ``bmns_b`` of a symmetric vmex state; see :class:`Geometry`."""
     arrays = {name: output[f"{name}_b"] for name in _MODES if f"{name}_b" in output}
     if "gmnc" not in arrays and "gmn_b" in output:
         arrays["gmnc"] = output["gmn_b"]
@@ -168,6 +241,7 @@ def from_booz_xform(output: dict[str, Any], s: Any, nfp: int) -> Geometry:
         G=output["bvco_b"] if "bvco_b" in output else output["G_b"],
         I=output["buco_b"] if "buco_b" in output else output["I_b"],
         **arrays,
+        **facts,
     )
 
 
@@ -245,6 +319,8 @@ def circular_torus(
     shift = 0.5 * minor_radius * epsilon_B * s  # r cos(theta + eps sin) ~ r cos - r eps (1 - cos 2 theta) / 2
     return Geometry.from_arrays(
         nfp,
+        axisymmetric=True,
+        nfp_periodic=True,
         s=s,
         xm=xm,
         xn=xn,
@@ -287,13 +363,12 @@ def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32, period: int =
 def field_period(geo: Geometry, nzeta: int) -> int:
     """``nfp`` when ``nzeta`` points over a turn are ``nfp`` copies of one field period, else 1.
 
-    Every ``xn`` must be a multiple of ``nfp``: the host raises ``ValueError`` otherwise; a traced ``xn`` cannot be checked,
-    so it gets the full turn (1).
+    Every ``xn`` must be a multiple of ``nfp``, else ``ValueError``: read from the arrays on the host and from the static
+    ``geo.nfp_periodic`` when ``xn`` is traced; a traced geometry whose fact is unknown (``None``) gets the full turn (1).
     """
-    if isinstance(geo.xn, jax.core.Tracer):
-        return 1
-    check(not np.any(np.asarray(geo.xn) % geo.nfp), f"every toroidal number xn must be a multiple of nfp={geo.nfp}")
-    return geo.nfp if nzeta % geo.nfp == 0 else 1
+    periodic = _fact(geo, "nfp_periodic")
+    check(periodic is not False, f"every toroidal number xn must be a multiple of nfp={geo.nfp}")
+    return geo.nfp if periodic and nzeta % geo.nfp == 0 else 1
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
