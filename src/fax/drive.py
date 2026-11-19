@@ -115,7 +115,8 @@ def growth_rate(
     and ``k = n + k' nfp``, ``|k'| <= helical``, are summed. An axisymmetric case with
     ``helical = 0`` is exact with ``nzeta = 1``. ``resolved=True`` returns the resonances
     ``(j, k)`` and the growth rate of each instead of their sum. ``boundary`` and ``guard`` are the passing-boundary and
-    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2).
+    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2); ``guard = 0`` is exact off
+    rational surfaces and raises ``ValueError`` when a nonconstant harmonic of the grid has ``iota k_theta + k_zeta = 0``.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(
@@ -126,6 +127,9 @@ def growth_rate(
         ],
         dtype=float,
     )
+    kt, kz = np.meshgrid(*(np.fft.fftfreq(k, 1.0 / k) for k in (ntheta, nzeta)), indexing="ij")
+    rational = jnp.any((jnp.asarray(geo.iota)[:, None, None] * kt + kz == 0) & ((kt != 0) | (kz != 0)))
+    check((guard != 0) | ~rational, "guard = 0 on a rational surface: iota k_theta + k_zeta = 0 for a nonconstant harmonic of the grid")
     gamma = _growth_rate(omega, jnp.asarray(phi), geo, hm, ions, mass_density, pairs, boundary, guard, nodes, ntheta, nzeta)
     return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
 
@@ -165,7 +169,8 @@ def _growth_rate(
     hbar = jnp.mean(h, axis=(2, 3))
     kt, kz = (jnp.fft.fftfreq(k, 1.0 / k)[:, None] for k in (ntheta, nzeta))
     kappa = geo.iota[:, None, None, None] * kt + kz.T  # (iota d_theta + d_zeta) -> i kappa
-    chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2)))
+    gauge = (kt == 0) & (kz.T == 0)  # chi is defined up to a constant: its mean is set to zero
+    chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2 + gauge)))
     weight = 0.5 * (1.0 + xi**2) * h / hbar[..., None, None] * jnp.sum(kernel, 1)[:, None]  # (S, L, T, Z): C = sum_h C_h, phase is h-free
     omega_hat = 1.0 / (jnp.abs(D)[:, None] * hbar)  # omega_zeta / v
     dens, temp = (jnp.broadcast_to(jnp.asarray(a, float).reshape(-1, 1), (len(geo.s), 1)) for a in (ions.density, ions.temperature_ev))

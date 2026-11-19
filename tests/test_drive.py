@@ -388,3 +388,20 @@ def test_temperature_profile_is_differentiated_at_fixed_energy(ns, nodes, ref):
     assert flat == pytest.approx(run(replace(ions, temperature_ev=139e3)), rel=1e-12)  # a flat profile is the scalar
     with pytest.raises(ValueError):
         run(replace(ions, temperature_ev=temp(s)[:5]))
+
+
+def test_zero_guard_sets_the_mean_of_the_orbit_angle_to_zero():
+    """The orbit angle ``chi`` of ``(iota d_theta + d_zeta) chi = h / <h> - 1`` is defined up to a constant: its ``k = 0`` Fourier
+    component is 0/0 at ``guard = 0`` and is set to zero. Plan step 1.5 (b): 8220.74853 s^-1 on 24 surfaces and 8 pitches (Koenies
+    density, 139 keV, atomic deuterium mass), equal to the result at ``guard = 1e-6`` within 1e-13 (the gate of the step; the guard
+    enters at second order). A zero divisor of a nonconstant component (here ``iota = 1/2``, ``(k_theta, k_zeta) = (2, -1)``) has no
+    finite inverse and raises on the host."""
+    s, run = kit_run(24, 8)
+    c0, c1, c2, c3 = 0.49123, 0.298228, 0.198739, 0.521298  # koenies_density on these surfaces
+    ions = fax.FastIons(1.44131e17 * c3 * jnp.exp(-(c2 / c1) * jnp.tanh((jnp.sqrt(s) - c0) / c2)), 139e3, mass_amu=ATOMIC_D)
+    zero = float(run(ions, guard=0.0))
+    assert zero == pytest.approx(8220.74853, rel=1e-9)
+    assert zero == pytest.approx(float(run(ions, guard=1e-6)), rel=1e-13)
+    with pytest.raises(ValueError, match="rational"):
+        drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=0.0)
+    assert jnp.isfinite(drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=1e-3))
