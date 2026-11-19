@@ -425,3 +425,28 @@ def test_species_mass_is_nuclear_and_charge_is_explicit():
         fax.FastIons(charge=0.0)
     with pytest.raises(ValueError, match="charge"):
         fax.ion_landau_damping(4e5, TAE, ITPA, HARM, 20e3, 2e19, charge=0, **AXI)
+
+
+def test_passing_boundary_maximum_is_refined_between_samples():
+    """``B = 3 (1 + 0.05 cos(theta - delta))`` on 64 points: the passing boundary ``1 / B_max`` from the largest sample has the
+    one-sided slopes -+7.418e-4 T^-1/rad at the tie ``delta = pi / 64`` (two equal samples). The parabola through the largest sample
+    and its two neighbours leaves out the quartic Taylor term, so ``|B_max - 3.15| < 0.15 dtheta^4 / 24`` T, and its slopes at the
+    tie are those of the three-point formula, ``(a - c)^2 / (8 (2 b - a - c))`` added to the sample ``b``, evaluated here in NumPy
+    (-+8.930e-7 T^-1/rad, 830 times smaller). Tolerance 1e-3 on the slopes: the one-sided differences with h = 1e-6 rad."""
+    theta, tie, h = 2 * np.pi * np.arange(64) / 64, np.pi / 64, 1e-6
+    field = lambda d: 3 * (1 + 0.05 * jnp.cos(jnp.asarray(theta)[None, :, None] - d))  # noqa: E731 - (S, T, Z) = (1, 64, 1)
+
+    def parabola(d):
+        b = 3 * (1 + 0.05 * np.cos(theta - d))
+        i = int(np.argmax(b))
+        a, c = b[i - 1], b[(i + 1) % 64]
+        return 1 / (b[i] + (a - c) ** 2 / (8 * (2 * b[i] - a - c)))
+
+    sides = lambda f: ((f(tie + h) - f(tie)) / h, (f(tie) - f(tie - h)) / h)  # noqa: E731
+    sampled = sides(lambda d: float(1 / jnp.max(field(d))))
+    np.testing.assert_allclose(sampled, [-7.418e-4, 7.418e-4], rtol=1e-3)
+    refined = sides(lambda d: float(1 / fax.drive._bmax(field(d))[0]))
+    np.testing.assert_allclose(refined, sides(parabola), rtol=1e-3)
+    np.testing.assert_allclose(refined, [-8.930e-7, 8.930e-7], rtol=1e-3)
+    assert abs(float(fax.drive._bmax(field(tie))[0]) - 3.15) < 0.15 * (2 * np.pi / 64) ** 4 / 24
+    assert abs(float(jax.grad(lambda d: 1 / fax.drive._bmax(field(d))[0])(tie))) == pytest.approx(8.930e-7, rel=1e-3)

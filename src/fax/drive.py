@@ -163,10 +163,10 @@ def _growth_rate(
     e = jnp.exp(1j * (m * g.theta - n * g.zeta)) / (g.B**3 * g.sqrt_g)[:, None]  # (S, H, T, Z)
     kernel = (col(geo.I) * Bz - col(geo.G) * Bt)[:, None] * e * _d_ds(phi, geo.s)[..., None, None]
     kernel = kernel + 1j * Bs[:, None] * (col(geo.G)[:, None] * m + col(geo.I)[:, None] * n) * e * phi[..., None, None]
-    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max is the exact sample maximum, so
+    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max from the samples (see _bmax), so
     # duplicated toroidal samples change nothing (a log-sum-exp bound shifts with the sample count)
     x, wx = (jnp.asarray(z) for z in np.polynomial.legendre.leggauss(nodes))
-    bmax = jnp.max(g.B, axis=(1, 2))[:, None]
+    bmax = _bmax(g.B)[:, None]
     lam = 0.5 * (x + 1.0) * (1.0 - boundary) / bmax  # (S, L)
     xi = jnp.sqrt(1.0 - lam[..., None, None] * g.B[:, None])  # (S, L, T, Z)
     h = 1.0 / (xi * g.B[:, None])
@@ -215,6 +215,15 @@ def ion_landau_damping(
     :func:`growth_rate`."""
     bulk = FastIons(density=density, temperature_ev=temperature_ev, mass_amu=mass_amu, charge=charge)
     return -growth_rate(omega, phi, geo, harmonics, bulk, density * mass_amu * AMU, **options)
+
+
+def _bmax(B: jax.Array) -> jax.Array:
+    """``max |B|`` per surface of ``B`` (S, T, Z): the largest sample ``b`` plus ``(a - c)^2 / (8 (2 b - a - c))`` of the parabola
+    through it and its neighbours ``a``, ``c`` in ``theta`` and in ``zeta`` (zero where they are equal). Never below the largest
+    sample; where two samples tie, the jump of its slope is O(dtheta^2) of that of the sampled maximum."""
+    i, at = jnp.argmax(B.reshape(len(B), -1), 1), lambda dt, dz: jnp.roll(B, (dt, dz), (1, 2)).reshape(len(B), -1)[jnp.arange(len(B)), i]
+    b = at(0, 0)
+    return b + sum((a - c) ** 2 / (8 * (2 * b - a - c) + (2 * b == a + c)) for a, c in ((at(1, 0), at(-1, 0)), (at(0, 1), at(0, -1))))
 
 
 def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:
