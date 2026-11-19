@@ -39,7 +39,7 @@ import numpy as np
 import solvax
 
 from .continuum import MU0, angle_mean, check_modes, generalized_eigh
-from .geometry import Geometry, _d_ds, check, surface_grid
+from .geometry import Geometry, _d_ds, check, surface_grid, symmetric
 
 
 class Blocks(NamedTuple):
@@ -90,7 +90,8 @@ def global_matrices(
     h = jnp.asarray(harmonics, dtype=float)
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
-    return _global_matrices(geo, surface_grid(geo, ntheta, nzeta), h, density, finite_beta)
+    F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta), h, density, finite_beta)
+    return jax.tree_util.tree_map(jnp.real, (F, G)) if symmetric(geo) else (F, G)
 
 
 @partial(jax.jit, static_argnums=4)
