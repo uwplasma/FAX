@@ -260,8 +260,10 @@ def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
     np.testing.assert_allclose(compiled, eager, rtol=1e-12)
     modes = lambda g: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8).omega2  # noqa: E731
     np.testing.assert_allclose(jax.jit(modes)(helical), modes(helical), rtol=1e-10)
-    added = lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8)  # noqa: E731
+    added = lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8, parity="single")  # noqa: E731
     np.testing.assert_allclose(jax.jit(added)(torus), added(torus), rtol=1e-12)  # a sine harmonic added under jit
+    # the default basis of that traced replace couples every family (axisymmetry unknown): n = 1 gains its conjugate copy
+    assert jax.jit(lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8))(torus).shape == (9, 12)
     zeta_points = lambda f, g: jax.jit(lambda g: fax.surface_grid(f(g), 16, 8, field_period(f(g), 8)).B)(g).shape[-1]  # noqa: E731
     two = lambda g: replace(g, nfp=2)  # noqa: E731
     assert zeta_points(lambda g: g, two(torus)) == 4 and zeta_points(two, torus) == zeta_points(two, helical) == 8  # unknown: full turn
