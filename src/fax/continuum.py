@@ -140,7 +140,7 @@ def continuum_matrices(
     surface displacement and the last ``H`` the parallel displacement over ``|B|``. Include ``-m`` and ``m`` (``mode_family``
     with ``m_min < 0``) when ``n = 0``, since the geodesic curvature couples ``m`` to ``-m`` through the conjugate sideband.
 
-    ``parity`` (stellarator-symmetric geometry only) solves one real sector of the physical potential: ``1`` the
+    ``parity`` (stellarator-symmetric host geometry only) solves one real sector of the physical potential: ``1`` the
     ``cos(m theta - n zeta)`` basis (STELLGAP's), ``-1`` the ``sin`` basis (AE3D's); see :func:`parity_basis`.
     """
     h = jnp.asarray(harmonics, dtype=float)
@@ -170,6 +170,9 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | None) -> tuple[jax.A
     ``nfp = 2``, ``n = 0`` in a tokamak). A real potential needs both signs. With stellarator symmetry the problem on
     ``h`` and ``-h`` splits exactly into the ``cos`` (``parity = 1``) and ``sin`` (``-1``) sectors, each real and of size
     ``len(h)``; this returns ``h`` and ``-h`` and the projection onto the requested sector.
+
+    Symmetry is read from the asymmetric harmonics as host zeros (:func:`fax.geometry.symmetric`), so a sector is refused
+    with ``ValueError`` for a traced geometry, as under ``jax.jit`` of a function of the geometry; ``parity=None`` works there.
     """
     if parity is None:
         return h, jnp.real
