@@ -379,12 +379,13 @@ def solve(
             lam = lam if vectors else lowest_eigenvalues(K, M, N * H)  # exact first derivatives without the vectors
             y = jnp.swapaxes(y, 0, 1).reshape(-1, N, H)
         else:
-            lam, y, status = targeted_eigenpairs(F, G, target, min(count, N * H), iters, tol)
+            lam, y, status = targeted_eigenpairs(F, G, target, count if plain else min(count, N * H), iters, tol)
             y = jnp.moveaxis(y, -1, 0)
         if plain:
             return lam, y if vectors else None, status
         parts.append((lam, on_rows(y, b, len(h)) if vectors else None, status))
     lam = jnp.concatenate([p[0] for p in parts])
+    check(target is None or count <= len(lam), f"count={count} exceeds the {len(lam)} unknowns of the basis")
     st = [p[2] for p in parts]
     if target is None:
         order, gap = jnp.argsort(lam), jnp.asarray(jnp.inf)

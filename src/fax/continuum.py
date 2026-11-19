@@ -212,7 +212,8 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     family (``N = -N``: ``N = 0`` or ``nfp / 2``, or ``n = 0`` in a tokamak) is its cosine and sine sectors, real, when the
     geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
     is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
-    earlier are dropped. A traced geometry counts as asymmetric, and as axisymmetric when ``nfp = 1`` (:func:`fax.geometry.axisymmetric`).
+    earlier are dropped. A traced geometry uses the static facts of :class:`fax.Geometry`; an unknown one counts as
+    asymmetric and not axisymmetric.
     ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
     """
     h = np.asarray(harmonics, dtype=float).reshape(-1, 2)

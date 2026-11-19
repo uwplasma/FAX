@@ -161,8 +161,8 @@ A self-conjugate family is one pencil on both signs. With stellarator symmetry t
 commutes with the operator and maps $e_j$ to $e_{-j}$, so that pencil is real and splits exactly into the cosine sector (even,
 STELLGAP's basis) and the sine sector (odd, AE3D's), each the size of the list (the sine sector has no $(0, 0)$). The two sectors have
 different eigenvalues in general; both are physical, so the default returns both, merged and sorted: "the spectrum" of the listed
-harmonics. Without symmetry, or for a traced geometry (the vmex design path, `jax.grad` in the geometry), the self-conjugate pencil
-is solved as one complex problem on both signs, with the same eigenvalues; a traced geometry with $N_{fp} = 1$ counts as axisymmetric.
+harmonics. Without symmetry, or for a traced geometry whose static symmetry facts are unknown ({class}`fax.Geometry`), the
+self-conjugate pencil is solved as one complex problem on both signs, with the same eigenvalues.
 Mode `structures` are the coefficients $x$ of the listed harmonics: real for a cosine-sector mode, $-i$ times real for a sine-sector
 mode. `parity=1` or `-1` selects one sector and `parity="single"` the old basis in {func}`fax.continuum`, {func}`fax.eigenmodes` and
 {func}`fax.frequency_hz`; {func}`fax.continuum_matrices` and {func}`fax.global_matrices` assemble exactly the list they are given.

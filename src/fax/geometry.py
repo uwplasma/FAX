@@ -121,11 +121,9 @@ def symmetric(geo: Geometry) -> bool:
 
 
 def axisymmetric(geo: Geometry) -> bool:
-    """True when no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle; a traced geometry when ``nfp = 1``."""
-    if isinstance(geo.xn, jax.core.Tracer) or isinstance(geo.bmnc, jax.core.Tracer):
-        return geo.nfp == 1
-    spectra = np.abs(np.concatenate([np.asarray(getattr(geo, k)) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")], -1))
-    return bool(spectra[:, np.tile(np.asarray(geo.xn), 6) != 0].max(initial=0.0) <= 1e-9 * spectra.max())
+    """Whether no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle: from the arrays on the host, else
+    ``geo.axisymmetric`` (``None``, unknown, counts as not axisymmetric)."""
+    return bool(_fact(geo, "axisymmetric"))
 
 
 def _fact(geo: Geometry, name: str) -> bool | None:
