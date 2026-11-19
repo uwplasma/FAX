@@ -364,3 +364,26 @@ def test_a_sector_mode_is_driven_as_the_standing_wave_of_its_two_travelling_comp
     assert listed == pytest.approx((plus + minus) / 2, rel=1e-4)
     old = drive(tok, harm, phi=MODE, **opt)  # the travelling reading of the same structure
     assert old == plus and abs(drive(tok, harm, standing=True, **opt) / old - 1) > 1
+
+
+def test_folded_rows_are_driven_as_the_travelling_wave_of_their_block():
+    """A tokamak list holding n = 6 and n = -6 is one block on (m, 6) and (-m', 6). ``structures`` fold a (-m', 6) unknown onto
+    the listed (m', -6) row as its conjugate: the same potential at t = 0, running backwards in time, so its drive is that of
+    another wave. :func:`fax.eigen.travelling` puts the row back, and the rate equals that of the block's own harmonics."""
+    from fax.eigen import travelling
+
+    tok, opt = torus(), dict(helical=0, nzeta=32)
+    h = np.array([[10.0, 6.0], [11.0, 6.0], [10.0, -6.0], [11.0, -6.0]])
+    block = np.array([[10.0, 6.0], [11.0, 6.0], [-10.0, 6.0], [-11.0, 6.0]])
+    ev, ref = fax.eigenmodes(tok, h, RHO), fax.eigenmodes(tok, block, RHO, parity="single")
+    np.testing.assert_allclose(ev.omega2, ref.omega2, rtol=1e-10)
+    folded = np.flatnonzero(
+        (np.abs(np.asarray(ev.structures)[..., 2:]) ** 2).sum((1, 2)) > 0.9 * (np.abs(np.asarray(ev.structures)) ** 2).sum((1, 2))
+    )
+    assert len(folded) >= 3
+    for k in folded[:: max(1, len(folded) // 3)][:3]:
+        w = float(np.sqrt(ev.omega2[k]))
+        want = drive(tok, block, phi=ref.structures[k], omega=w, **opt)
+        hh, phi = travelling(tok, h, ev.structures[k])
+        assert drive(tok, hh, phi=phi, omega=w, **opt) == pytest.approx(want, rel=1e-8)
+        assert abs(drive(tok, h, phi=ev.structures[k], omega=w, **opt) / want - 1) > 0.1  # the folded reading
