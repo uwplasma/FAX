@@ -403,8 +403,10 @@ def test_a_pair_of_sector_modes_is_driven_as_a_two_mode_ledger():
     assert abs(np.sqrt(sin.omega2[k]) / w - 1) < 1e-10
     x = jnp.stack([cos.structures[k], sin.structures[k]])
     rate = lambda om, y: drive(tok, h, phi=y, omega=om, standing=True, **opt)  # noqa: E731
+    ions = fax.FastIons(density=1e17 * jnp.exp(-8 * S40), temperature_ev=200e3)  # as in drive()
+    ledger = lambda om: pair_rates(om, x, jnp.array([False, True]), tok, h, ions, RHO, **{**LOOSE, **opt})  # noqa: E731
     plus, minus = drive(tok, h, phi=x[0], omega=w, **opt), drive(tok, -h, phi=jnp.conj(x[0]), omega=w, **opt)
-    np.testing.assert_allclose(np.sort(pair_rates(jnp.array([w, w]), x, jnp.array([False, True]), rate)), np.sort([minus, plus]), rtol=1e-8)
+    np.testing.assert_allclose(np.sort(ledger(jnp.array([w, w]))), np.sort([minus, plus]), rtol=1e-8)
     far = jnp.array([w, 1.2 * w])
     diag = [rate(far[0], x[0]), rate(far[1], x[1])]
-    np.testing.assert_allclose(pair_rates(far, x, jnp.array([False, True]), rate), diag, rtol=1e-6)
+    np.testing.assert_allclose(ledger(far), diag, rtol=1e-6)

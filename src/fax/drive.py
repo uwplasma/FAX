@@ -120,7 +120,8 @@ def growth_rate(
 
     ``standing=True`` reads ``phi`` as a cosine- or sine-sector mode of :func:`fax.eigenmodes`, the standing wave
     ``Re sum_h phi_h exp(i(m_h theta - n_h zeta))``: the rate is that of its travelling components ``phi / 2`` on ``(m, n)``
-    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference. It is the rate of the mode only when the
+    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference; a pair ``phi = (plus, minus)`` gives those two
+    coefficients explicitly. It is the rate of the mode only when the
     cosine and sine partners are further apart in frequency than the drive couples them; a nearer pair needs the 2 x 2 ledger
     of the two modes, and in an axisymmetric field, where the partners are degenerate, the travelling rates (this function
     without ``standing``, on ``(m, n)`` and on ``(-m, -n)``) are the physical ones. A mode of :func:`fax.eigenmodes` whose
@@ -136,8 +137,9 @@ def growth_rate(
         dtype=float,
     )
     if standing:  # each travelling component keeps its own sidebands; a harmonic listed twice (as (0, 0)) sums its parts
+        plus, minus = phi if isinstance(phi, tuple) else (jnp.asarray(phi) / 2, jnp.conj(jnp.asarray(phi)) / 2)
         hm, row = np.unique(np.concatenate([hm, -hm]), axis=0, return_inverse=True)
-        both = jnp.concatenate([jnp.asarray(phi), jnp.conj(jnp.asarray(phi))], 1) / 2
+        both = jnp.concatenate([plus, minus], 1)
         phi, pairs = (
             jnp.zeros((both.shape[0], len(hm)), complex).at[:, row.reshape(-1)].add(both),
             np.unique(np.concatenate([pairs, -pairs]), axis=0),
@@ -202,6 +204,39 @@ def _growth_rate(
     radial = jnp.trapezoid(jnp.concatenate([zero, power, zero], 1), jnp.concatenate([zero[0], geo.s, jnp.ones(1)]))
     inertia = global_matrices(geo, hm, mass_density, ntheta=ntheta, nzeta=nzeta)[1]
     return jnp.pi**2 * MU0 * (ions.mass_amu * AMU) ** 2 / 2 * radial / _quad(phi[..., None], inertia)[0]
+
+
+def pair_rates(
+    omega: Any, phi: Any, sine: Any, geo: Geometry, harmonics: Any, ions: FastIons, mass_density: Any, **options: Any
+) -> jax.Array:
+    """Growth rates (1/s) of sector modes as two-mode ledgers (plan 8.5): ``omega`` (rad/s) and ``phi`` stack the modes
+    (structures of :func:`fax.eigenmodes`), ``sine`` marks the sine-sector ones; ``options`` go to :func:`growth_rate`.
+
+    A mode and its nearest mode of the other sector, when each is the other's nearest, are one 2 x 2 problem
+    ``dc/dt = (diag(-i omega) + Gamma) c`` in one wave energy. ``Gamma_aa`` is the standing-wave rate of ``a``, and
+    ``|Gamma_ab|^2`` comes from the rates of the two-sign waves ``S(a) + S(b)`` and ``S(a) + i S(b)`` at the mean frequency,
+    ``S(x) = (x / 2, conj(x) / 2)`` on ``(m, n)`` and ``(-m, -n)`` (the modes are orthogonal and of equal energy). The rates
+    are the real parts of its eigenvalues, ``mean +- Re sqrt((Gamma_aa - Gamma_bb - i (omega_a - omega_b))^2 / 4 +
+    |Gamma_ab|^2)``, each mode taking the root nearer its own frequency (the cosine mode ``+`` in a tie). Far apart in
+    frequency they are the diagonal rates; degenerate, the rates of the two travelling waves. A mode without such a
+    partner keeps its own rate. At the exceptional point (zero discriminant) the rates are continuous and their
+    derivative is not finite."""
+    w, phi, sine = jnp.asarray(omega), jnp.asarray(phi), jnp.asarray(sine)
+    rate = lambda om, plus, minus: growth_rate(om, (plus, minus), geo, harmonics, ions, mass_density, standing=True, **options)  # noqa: E731
+    own = jnp.stack([rate(w[i], phi[i] / 2, jnp.conj(phi[i]) / 2) for i in range(len(w))])
+    gap = jnp.where(sine[:, None] != sine[None], jnp.abs(w[:, None] - w[None]), jnp.inf)
+    j = jnp.argmin(gap, 1)
+    paired = (j[j] == jnp.arange(len(w))) & jnp.isfinite(gap.min(1))
+    out = []
+    for i in range(len(w)):
+        a, b, mid, mean = phi[i], phi[j[i]], (w[i] + w[j[i]]) / 2, (own[i] + own[j[i]]) / 2
+        real = rate(mid, (a + b) / 2, jnp.conj(a + b) / 2) - mean
+        imag = rate(mid, (a + 1j * b) / 2, (jnp.conj(a) + 1j * jnp.conj(b)) / 2) - mean
+        root = jnp.sqrt(((own[i] - own[j[i]]) - 1j * (w[i] - w[j[i]])) ** 2 / 4 + real**2 + imag**2)
+        side = (w[i] - w[j[i]]) * jnp.imag(root)  # each mode takes the eigenvalue nearer its own frequency
+        branch = jnp.where(side < 0, 1.0, jnp.where(side > 0, -1.0, jnp.where(sine[i], -1.0, 1.0)))
+        out.append(jnp.where(paired[i], mean + branch * jnp.real(root), own[i]))
+    return jnp.stack(out)
 
 
 def ion_landau_damping(

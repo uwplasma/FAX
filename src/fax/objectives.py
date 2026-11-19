@@ -18,8 +18,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from .continuum import block_matrices, continuum, continuum_matrices, generalized_eigh, on_rows, spectral_blocks
-from .drive import FastIons, growth_rate
-from .eigen import Status, _hz, eigenmodes, selected, solve, split_solver
+from .drive import FastIons, growth_rate, pair_rates
+from .eigen import Status, _hz, eigenmodes, selected, solve, split_solver, travelling
 from .geometry import Geometry, axisymmetric, check, from_booz_xform, surface_grid
 
 
@@ -306,16 +306,23 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     The modes come from the shift-invert solve on the design's FE nodes (differentiated
     through the iteration); ``ions.density`` is a scalar or a profile on those nodes and
     ``drive`` goes to :func:`fax.growth_rate`. The rates are NaN unless the solve converged and its selection
-    does not split a tied set (``gap > 1e-8 max|omega^2|``). Modes of cosine and sine sectors are standing waves
-    (``growth_rate(..., standing=True)``); the other blocks of :func:`fax.continuum.spectral_blocks` give travelling waves,
-    and a basis that holds both kinds is refused.
+    does not split a tied set (``gap > 1e-8 max|omega^2|``). Modes of cosine and sine sectors are standing waves, driven
+    as pairs (:func:`fax.drive.pair_rates`, among the ``count`` modes); the other blocks of
+    :func:`fax.continuum.spectral_blocks` give travelling waves (:func:`fax.eigen.travelling`). A basis that holds both
+    kinds is refused.
     """
-    geo = _nodes(geo, design.nodes)
+    geo, parity = _nodes(geo, design.nodes), design.options.get("parity")
     ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
-    sectors = [b.parity in (1, -1) for b in spectral_blocks(geo, design.harmonics, design.options.get("parity"))]
+    sectors = [b.parity in (1, -1) for b in spectral_blocks(geo, design.harmonics, parity)]
     check(all(sectors) or not any(sectors), "the drive needs sector modes or travelling modes alone: give one family or a parity")
-    rate = lambda w2, y: growth_rate(jnp.sqrt(w2), y, geo, design.harmonics, ions, design.density, standing=all(sectors), **drive)  # noqa: E731
-    return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)
+    w, x = jnp.sqrt(ev.omega2), ev.structures
+    if all(sectors):
+        sine = jnp.sum(x.imag**2, (1, 2)) > jnp.sum(x.real**2, (1, 2))  # a sine-sector structure is -i times real
+        rates = pair_rates(w, x, sine, geo, design.harmonics, ions, design.density, **drive)[:mode_count]
+    else:
+        h, x = travelling(geo, design.harmonics, x, parity)
+        rates = jnp.stack([growth_rate(w[i], x[i], geo, h, ions, design.density, **drive) for i in range(mode_count)])
+    return _reject(rates, ev.status, ev.omega2)
 
 
 def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
