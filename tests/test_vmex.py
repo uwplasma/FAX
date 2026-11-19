@@ -36,6 +36,31 @@ def test_vmec_input_to_continuum():
 
 
 @pytest.mark.slow
+def test_design_path_of_a_symmetric_state_is_real_under_jit():
+    """Inside ``jax.jit`` the asymmetric tables of a vmex state are traced zeros, so only the runtime's ``lasym`` says the state
+    is stellarator symmetric. ``state_geometry`` states it: the self-conjugate n = 1 family (nfp = 2) is then its two real
+    sectors under ``jax.jit``, as eagerly, and the compiled design frequencies equal the eager ones."""
+    from fax.continuum import spectral_blocks
+    from fax.eigen import global_matrices
+    from fax.objectives import geometry_frequencies, state_geometry
+
+    design = fax.prepare_design(INPUT, harmonics=fax.mode_family((1, 3), 3), density=3.4e-8, nodes=8, mboz=4, nboz=4)
+    state, runtime = fax.design_state(jnp.zeros(1), design)
+    parities = []
+
+    def sector(s, r):
+        geo = state_geometry(s, r, design)
+        parities.extend(b.parity for b in spectral_blocks(geo, design.harmonics))
+        return global_matrices(geo, design.harmonics, design.density, parity=1)[0].diag
+
+    assert jax.eval_shape(sector, state, runtime).dtype == jnp.float64 and parities == [1, -1]
+    geo = fax.design_geometry(jnp.zeros(1), design)
+    assert geo.stellsym and fax.geometry.symmetric(geo)
+    eager = geometry_frequencies(geo, design)[0]
+    np.testing.assert_allclose(jax.jit(lambda g: geometry_frequencies(g, design)[0])(geo), eager, rtol=1e-10)
+
+
+@pytest.mark.slow
 def test_boundary_gradient_and_radial_refinement():
     """Lowest n = 0 global frequency of LP-QA: AD vs re-solve FD in ``zs01`` while only the FE grid is refined.
 
