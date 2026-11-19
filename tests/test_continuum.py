@@ -209,27 +209,63 @@ def test_asymmetric_geometry_is_hermitian_finite_and_differentiable(asymmetric_t
 
 
 def test_symmetric_geometry_is_solved_in_real_arithmetic(asymmetric_torus):
-    """A host stellarator-symmetric geometry gives real matrices and the eigenvalues of the complex path (traced geometry)."""
+    """A stellarator-symmetric geometry, on the host or traced, gives real matrices equal to the complex assembly."""
+    from fax.continuum import _continuum_matrices
+    from fax.eigen import _global_matrices
+
     geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.05), fax.mode_family(1, 3), 3.4e-8
     assert symmetric(geo) and not symmetric(asymmetric_torus)
-    for f in (lambda g: fax.continuum_matrices(g, h, rho, 16, 8), lambda g: global_matrices(g, h, rho, 16, 8)):
-        real, traced = f(geo), jax.jit(f)(geo)
-        assert all(a.dtype == jnp.float64 for a in jax.tree_util.tree_leaves(real))
-        assert all(a.dtype == jnp.complex128 for a in jax.tree_util.tree_leaves(traced))
-        for a, b in zip(jax.tree_util.tree_leaves(real), jax.tree_util.tree_leaves(traced), strict=True):
-            np.testing.assert_allclose(a, b, atol=1e-15 * float(jnp.abs(b).max()))
+    grid = fax.surface_grid(geo, 16, 8)
+    cases = (
+        (lambda g: fax.continuum_matrices(g, h, rho, 16, 8), _continuum_matrices(geo, grid, h, rho, None, 5 / 3, 1)),
+        (lambda g: global_matrices(g, h, rho, 16, 8), _global_matrices(geo, grid, h, rho, False, 1)),
+    )
+    for f, complex_path in cases:
+        assert all(a.dtype == jnp.complex128 for a in jax.tree_util.tree_leaves(complex_path))
+        for got in (f(geo), jax.jit(f)(geo)):
+            assert all(a.dtype == jnp.float64 for a in jax.tree_util.tree_leaves(got))
+            for a, b in zip(jax.tree_util.tree_leaves(got), jax.tree_util.tree_leaves(complex_path), strict=True):
+                np.testing.assert_allclose(a, b, atol=1e-15 * float(jnp.abs(b).max()))
     modes = lambda g, **t: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8, **t).omega2  # noqa: E731
     for target in ({}, {"target_hz": 2e5, "count": 4}):
         np.testing.assert_allclose(modes(geo, **target), jax.jit(lambda g, t=target: modes(g, **t))(geo), rtol=1e-11)
 
 
-def test_parity_sectors_refuse_a_traced_geometry():
-    """Symmetry is read from host zeros, so a traced geometry counts as asymmetric and a parity sector is refused."""
+def test_parity_sectors_on_a_traced_geometry(asymmetric_torus):
+    """Symmetry is a static fact of the geometry, so a traced symmetric geometry keeps its sectors and an asymmetric one is refused."""
     geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.05), fax.mode_family(1, 3), 3.4e-8
     assert fax.continuum(geo, h, rho, 16, 8, parity=1).shape == (9, 4)
     for f in (lambda g: fax.continuum(g, h, rho, 16, 8, parity=1), lambda g: global_matrices(g, h, rho, 16, 8, parity=-1)):
+        for a, b in zip(jax.tree_util.tree_leaves(f(geo)), jax.tree_util.tree_leaves(jax.jit(f)(geo)), strict=True):
+            np.testing.assert_allclose(a, b, rtol=1e-12, atol=1e-15 * float(jnp.abs(a).max()))
         with pytest.raises(ValueError, match="stellarator-symmetric"):
-            jax.jit(f)(geo)
+            jax.jit(f)(asymmetric_torus)
+
+
+def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
+    """The facts that choose the real path, the coupled families and the one-period average are static fields set by each
+    constructor (``dataclasses.replace`` included), so eager and compiled calls agree. The ``nfp = 1`` field with an ``n = 1``
+    harmonic of ``R`` and ``Z`` is three-dimensional: ``n = 0`` and ``n = 1`` couple."""
+    from fax.geometry import field_period
+
+    s, h, rho = jnp.linspace(0.1, 0.9, 9), fax.mode_family((0, 1), 3, 1), 3.4e-8
+    torus = fax.circular_torus(s=s, iota=0.4, epsilon_B=0.1)
+    helical = replace(torus, xn=torus.xn.at[2].set(1.0))
+    facts = lambda g: (g.axisymmetric, g.stellsym, g.nfp_periodic)  # noqa: E731
+    assert facts(torus) == (True, True, True) and facts(helical) == (False, True, True)
+    assert facts(replace(helical, nfp=2)) == (False, True, False) and not replace(torus, bmns=torus.bmnc).stellsym
+    eager, compiled = fax.continuum(helical, h, rho, 16, 8), jax.jit(lambda g: fax.continuum(g, h, rho, 16, 8))(helical)
+    assert eager.shape == compiled.shape == (9, 6)
+    np.testing.assert_allclose(compiled, eager, rtol=1e-12)
+    for g in (torus, helical):
+        rows = lambda g: jnp.asarray(np.concatenate(fax.mode_families(g, h)))  # noqa: E731
+        np.testing.assert_array_equal(jax.jit(rows)(g), rows(g))
+    zeta_points = lambda g: jax.jit(lambda g: fax.surface_grid(g, 16, 8, field_period(g, 8)).B)(g).shape[-1]  # noqa: E731
+    assert zeta_points(replace(torus, nfp=2)) == 4 and zeta_points(replace(helical, nfp=2)) == 8
+    sector = lambda e: fax.continuum(fax.circular_torus(s=s, iota=0.4, epsilon_B=e), h, rho, 16, 8, parity=1)[:, 0].sum()  # noqa: E731
+    fd = (sector(0.1 + 1e-5) - sector(0.1 - 1e-5)) / 2e-5
+    assert float(jax.grad(sector)(0.1)) == pytest.approx(float(fd), rel=1e-6)
+    np.testing.assert_allclose(jax.vmap(sector)(jnp.array([0.05, 0.1])), [sector(0.05), sector(0.1)], rtol=1e-12)
 
 
 def test_one_period_average_is_refused_when_a_toroidal_number_is_not_a_multiple_of_nfp():
