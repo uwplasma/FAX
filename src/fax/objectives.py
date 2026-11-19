@@ -247,12 +247,14 @@ def design_params(offsets: Any, design: Design) -> Any:
 
 
 def state_geometry(state: Any, runtime: Any, design: Design) -> Geometry:
-    """Boozer geometry on the half-mesh rows ``j >= 1`` from a vmex state and runtime (traceable), one call to vmex."""
+    """Boozer geometry on the half-mesh rows ``j >= 1`` from a vmex state and runtime (traceable), one call to vmex. A state
+    without ``lasym`` is stated stellarator symmetric: under ``jax.jit`` its all-zero asymmetric tables are traced, and the
+    statement keeps the real sectors (:class:`fax.Geometry`)."""
     from vmex.core.omnigenity import boozer_spectrum_state
 
     c = design._cache
     out = boozer_spectrum_state(state, runtime, surfaces=c["s"], mboz=c["mboz"], nboz=c["nboz"], oversample=1, geometry=True)
-    return from_booz_xform(out, out["s_b"], out["nfp"])
+    return from_booz_xform(out, out["s_b"], out["nfp"], **({} if runtime.setup.lasym else {"stellsym": True}))
 
 
 def design_state(offsets: Any, design: Design) -> tuple[Any, Any]:
