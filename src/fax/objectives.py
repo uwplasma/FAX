@@ -31,7 +31,7 @@ from .eigen import (
     split_solver,
     targeted_eigenpairs,
 )
-from .geometry import Geometry, _fact, from_booz_xform, surface_grid
+from .geometry import Geometry, axisymmetric, from_booz_xform, surface_grid
 
 
 def window_risk(frequencies_hz: Any, window_hz: tuple[float, float], softness_hz: float) -> jax.Array:
@@ -337,16 +337,11 @@ def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
     return "MAE" if dm == 0 else "HAE"
 
 
-def _axisymmetric(geo: Geometry) -> bool:
-    """True when no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle (``geo.axisymmetric`` when traced)."""
-    return bool(_fact(geo, "axisymmetric"))
-
-
 def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
     """Row indices of ``harmonics`` that the equilibrium couples: one group per ``n`` when the geometry is axisymmetric,
     one per ``n mod nfp`` otherwise. Harmonics of different groups never couple, so their continua are separate spectra."""
     h = np.asarray(harmonics, dtype=int)
-    key = h[:, 1] if _axisymmetric(geo) else np.mod(h[:, 1], geo.nfp)
+    key = h[:, 1] if axisymmetric(geo) else np.mod(h[:, 1], geo.nfp)
     return [np.flatnonzero(key == k) for k in np.unique(key)]
 
 
@@ -362,7 +357,7 @@ def alfven_harmonics(geo: Geometry, m_max: int = 12, width: float | None = None)
     """
     iota = np.asarray(geo.iota, dtype=float)
     lo, hi = iota.min(), iota.max()
-    if _axisymmetric(geo):
+    if axisymmetric(geo):
         sign = 1 if np.mean(iota) >= 0 else -1
         pairs = [(m, sign * n) for n in (1, 2) for m in range(m_max + 1)]
     else:

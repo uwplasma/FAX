@@ -34,8 +34,8 @@ fx = kr.load()
 print("fixture", kr.FIXTURE.stat().st_size, "bytes")
 
 sub = fx if RESEARCH else {**fx, "sg_s": fx["sg_s"][::8], "sg_khz": fx["sg_khz"][::8]}  # every 8th surface in the fast path
-err, edge, s = kr.continuum_error(sub, 64, 48)
-print(f"continuum, {len(s)} surfaces: complex basis mean {err.mean():.1e} p95 {np.percentile(err, 95):.1e} max {err.max():.1e}, ", end="")
+err, edge, s = kr.continuum_error(sub)  # the cos sector, STELLGAP's basis
+print(f"continuum, {len(s)} surfaces: cos sector mean {err.mean():.1e} p95 {np.percentile(err, 95):.1e} max {err.max():.1e}, ", end="")
 print(f"gap edges (s > 0.25) max {edge[s > 0.25].max():.1e}")
 if RESEARCH:
     err2 = kr.continuum_error(fx, 112, 72, parity=-1)[0]

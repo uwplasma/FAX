@@ -120,6 +120,14 @@ def symmetric(geo: Geometry) -> bool:
     return bool(_fact(geo, "stellsym"))
 
 
+def axisymmetric(geo: Geometry) -> bool:
+    """True when no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle; a traced geometry when ``nfp = 1``."""
+    if isinstance(geo.xn, jax.core.Tracer) or isinstance(geo.bmnc, jax.core.Tracer):
+        return geo.nfp == 1
+    spectra = np.abs(np.concatenate([np.asarray(getattr(geo, k)) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")], -1))
+    return bool(spectra[:, np.tile(np.asarray(geo.xn), 6) != 0].max(initial=0.0) <= 1e-9 * spectra.max())
+
+
 def _fact(geo: Geometry, name: str) -> bool | None:
     """A symmetry fact of ``geo``: from its arrays when they are concrete, else the static field (``None`` when unknown)."""
     return _facts(lambda key: getattr(geo, key), geo.nfp).get(name, getattr(geo, name))

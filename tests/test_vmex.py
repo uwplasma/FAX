@@ -31,8 +31,8 @@ ASYMMETRIC_TOKAMAK = """&INDATA
 def test_vmec_input_to_continuum():
     geo = fax.from_vmec_input(INPUT, ns=16, mboz=6, nboz=6, surfaces=(0.3, 0.5, 0.7))
     assert geo.nfp == 2 and geo.s.shape == (3,)
-    f = fax.continuum(geo, fax.mode_family(1, 4), fax.mass_density(1e19), 16, 16)
-    assert jnp.all(jnp.isfinite(f)) and f.shape == (3, 5)
+    f = fax.continuum(geo, fax.mode_family(1, 4), fax.mass_density(1e19))  # n = 1 is self-conjugate at nfp = 2: both sectors
+    assert jnp.all(jnp.isfinite(f)) and f.shape == (3, 10)
 
 
 @pytest.mark.slow

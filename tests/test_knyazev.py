@@ -34,9 +34,9 @@ def test_fixture_is_small_and_describes_a_dense_spectrum(fx):
 
 
 def test_stellgap_continuum_parity(fx):
-    """162 branches on every 8th fixture surface, complex basis of the AE3D harmonic list, unaliased 64 x 48 grid."""
+    """162 branches on every 8th fixture surface, the single-sign basis of the AE3D harmonic list, unaliased 64 x 48 grid."""
     sub = {**fx, "sg_s": fx["sg_s"][::8], "sg_khz": fx["sg_khz"][::8]}
-    err, edge, s = kq.continuum_error(sub, 64, 48)
+    err, edge, s = kq.continuum_error(sub, 64, 48, parity="single")
     assert err.size == 13 and err.mean() < 4e-3 and err.max() < 5e-3  # measured 3.0e-3 mean, 4.3e-3 max on all 98
     assert (edge[s > 0.25].max(0) < [1.5e-2, 4e-2]).all()  # branches below and above the archived global mode: 1.0% and 3.0%
 
@@ -71,12 +71,12 @@ def test_parity_sectors_split_the_two_sign_problem_and_cos_is_stellgaps_basis(fx
     lam = np.sort(np.concatenate([generalized_eigh(dense(A), dense(B))[0] for A, B in sectors]))
     np.testing.assert_allclose(lam, generalized_eigh(dense(F), dense(G))[0], rtol=1e-9)
     assert dense(sectors[0][0]).dtype == np.float64 and dense(sectors[0][0]).shape == (12 * 16, 12 * 16)
-    single = np.asarray(fax.continuum(geo, h, kq.RHO, 112, 72))
+    single = np.asarray(fax.continuum(geo, h, kq.RHO, 112, 72, parity="single"))
     assert np.abs(single / cos - 1).max() > 1e-2  # the (m, n) x (-m', -n') coupling is missing from the single-sign basis
     sub = {**fx, "sg_s": fx["sg_s"][::8], "sg_khz": fx["sg_khz"][::8]}
     err = kq.continuum_error(sub, 112, 72, parity=1)[0]
     assert err.mean() < 2e-3 and err.max() < 3e-3  # STELLGAP's cos basis: 1.6e-3 mean, 2.6e-3 max on all 98 (single-sign 3.0e-3, 4.3e-3)
-    with pytest.raises(ValueError, match="once up to sign"):
+    with pytest.raises(ValueError, match="once up to sign|distinct"):
         fax.continuum(geo, both, kq.RHO, 112, 72, parity=1)
 
 
