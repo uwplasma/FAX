@@ -94,7 +94,7 @@ def global_matrices(
 
         int sigma b.(grad phi~* x grad u) dV - 2 mu0 int (b x grad phi.grad p)(b x grad phi~*.kappa) / B^2 dV.
 
-    ``parity`` (``1`` cos, ``-1`` sin, stellarator-symmetric geometry only) solves one real sector of the potential on
+    ``parity`` (``1`` cos, ``-1`` sin, stellarator-symmetric host geometry only) solves one real sector of the potential on
     ``(m, n)`` and ``(-m, -n)``, see :func:`fax.continuum.parity_basis`; ``-1`` is AE3D's sine basis.
     """
     h = jnp.asarray(harmonics, dtype=float)
