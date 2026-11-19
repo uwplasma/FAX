@@ -131,7 +131,8 @@ def read_boozmn(path: str | Path) -> Geometry:
         ns = float(np.asarray(var["ns_b"][...])) if "ns_b" in var else float(jlist.max())
         if jlist.max() < ns:
             warnings.warn(
-                f"{path}: Boozer coefficients end at half surface {jlist.max()} of ns_b = {ns:g}: the outer half surface is absent",
+                f"{Path(path).name}: the outer half surface {ns:g} is not in the file (its coefficients stop at {jlist.max()}),"
+                " so quantities there are not available from it",
                 stacklevel=2,
             )
         profile = lambda name: np.asarray(var[name][:], dtype=float)[jlist - 1]  # noqa: E731

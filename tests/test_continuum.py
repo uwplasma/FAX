@@ -39,7 +39,7 @@ def test_matrices_are_hermitian_and_resolution_converged():
 @functools.cache
 def _ctok_khz():
     """FAX continuum of the packet ``boozmn_ctok.nc`` (n = 2, m = 0..12, deuterium at 1e19 m^-3), kHz."""
-    with pytest.warns(UserWarning, match="outer half surface is absent"):  # jlist = 2..100 of ns_b = 101
+    with pytest.warns(UserWarning, match="outer half surface .* is not in the file"):  # jlist = 2..100 of ns_b = 101
         geo = fax.read_boozmn(DATA / "boozmn_ctok.nc")
     rho = fax.mass_density(1e19, 2 * 1.00727647)  # two proton masses; STELLGAP uses 2 x 1.67e-27 kg (plasma.dat)
     return np.asarray(geo.s), np.asarray(jax.jit(lambda g: fax.continuum(g, fax.mode_family(2, 12), rho))(geo)) / 1e3
