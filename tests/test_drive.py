@@ -359,5 +359,8 @@ def test_a_sector_mode_is_driven_as_the_standing_wave_of_its_two_travelling_comp
     assert plus > 0 > minus
     for phi in (MODE, -1j * MODE):  # a cosine- and a sine-sector structure
         assert drive(tok, harm, phi=phi, standing=True, **opt) == pytest.approx((plus + minus) / 2, rel=1e-10)
+    listed = drive(tok, np.concatenate([harm, -harm[:1]]), phi=jnp.concatenate([MODE, 0 * MODE[:, :1]], 1), standing=True, **opt)
+    # (-10, -6) listed with no amplitude merges with its copy; its own sidebands widen the resonance set (8e-6 here)
+    assert listed == pytest.approx((plus + minus) / 2, rel=1e-4)
     old = drive(tok, harm, phi=MODE, **opt)  # the travelling reading of the same structure
     assert old == plus and abs(drive(tok, harm, standing=True, **opt) / old - 1) > 1

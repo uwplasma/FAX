@@ -131,10 +131,13 @@ def growth_rate(
         ],
         dtype=float,
     )
-    if standing:  # each travelling component keeps its own sidebands; (0, 0) is its own conjugate, its coefficient Re(phi)
-        zero, phi = ~(hm != 0).any(1), jnp.asarray(phi)
-        phi = jnp.concatenate([(phi + jnp.where(zero, jnp.conj(phi), 0)) / 2, jnp.conj(phi[:, ~zero]) / 2], 1)
-        hm, pairs = np.concatenate([hm, -hm[~zero]]), np.unique(np.concatenate([pairs, -pairs]), axis=0)
+    if standing:  # each travelling component keeps its own sidebands; a harmonic listed twice (as (0, 0)) sums its parts
+        hm, row = np.unique(np.concatenate([hm, -hm]), axis=0, return_inverse=True)
+        both = jnp.concatenate([jnp.asarray(phi), jnp.conj(jnp.asarray(phi))], 1) / 2
+        phi, pairs = (
+            jnp.zeros((both.shape[0], len(hm)), complex).at[:, row.reshape(-1)].add(both),
+            np.unique(np.concatenate([pairs, -pairs]), axis=0),
+        )
     gamma = _growth_rate(omega, jnp.asarray(phi), geo, hm, ions, mass_density, pairs, boundary, guard, nodes, ntheta, nzeta)
     return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
 
