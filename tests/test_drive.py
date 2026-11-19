@@ -454,3 +454,39 @@ def test_passing_boundary_maximum_is_refined_between_samples():
     np.testing.assert_allclose(refined, [-8.930e-7, 8.930e-7], rtol=1e-3)
     assert abs(float(fax.drive._bmax(field(tie))[0]) - 3.15) < 0.15 * (2 * np.pi / 64) ** 4 / 24
     assert abs(float(jax.grad(lambda d: 1 / fax.drive._bmax(field(d))[0])(tie))) == pytest.approx(8.930e-7, rel=1e-3)
+    wrap = [jax.grad(lambda d: fax.drive._bmax(field(d))[0])(x) for x in (tie, -tie)]  # the tie of samples 63 and 0 wraps
+    assert abs(float(wrap[1])) == pytest.approx(abs(float(wrap[0])), rel=1e-9)
+    flat = jax.value_and_grad(lambda c: fax.drive._bmax(c * jnp.ones((1, 8, 4)))[0])(3.0)  # every sample ties
+    assert flat[0] == 3.0 and flat[1] == pytest.approx(1.0, rel=1e-12)
+
+
+@pytest.mark.parametrize("p", [0.2, 0.37, 0.5])
+def test_passing_boundary_maximum_on_a_helical_ridge(p):
+    """``B = 3 (1 + 0.05 cos(theta - zeta - c))`` has its maximum 3.15 T on a ridge across both grid axes. The largest sample is low
+    by O(h^2) (h the grid spacing); the maximum of the quadratic fitted on the 3 x 3 stencil with its cross term is low by O(h^4)
+    when the ridge keeps its place in the cell (``c = p dtheta``): halving h divides the error by 16 (accepted 12 to 20). Gate of
+    the review: at least 20 times below the sampled error on 32 x 16 and 64 x 32, and for phases c that are not cell fractions."""
+
+    def errors(nt, nz, c):
+        th, ze = np.meshgrid(2 * np.pi * np.arange(nt) / nt, 2 * np.pi * np.arange(nz) / nz, indexing="ij")
+        b = 3 * (1 + 0.05 * jnp.cos(jnp.asarray(th - ze - c)))[None]
+        return float(jnp.max(b)) - 3.15, float(fax.drive._bmax(b)[0]) - 3.15
+
+    (s1, r1), (s2, r2) = (errors(nt, nz, p * 2 * np.pi / nt) for nt, nz in ((32, 16), (64, 32)))
+    assert abs(r1) < abs(s1) / 20 and abs(r2) < abs(s2) / 20 and r1 <= 0 and r2 <= 0
+    assert 12 < r1 / r2 < 20 and 3 < s1 / s2 < 5  # O(h^4) against O(h^2)
+    s, r = errors(32, 16, 1.1 + p)
+    assert abs(r) < abs(s) / 20
+
+
+def test_growth_rate_uses_the_refined_maximum():
+    """``B = B0 (1 - eps sqrt(s) cos(theta - c))`` with ``c = 0.3 dtheta``: the maximum lies between samples, so the passing boundary of
+    ``growth_rate`` moves by the refinement (relative O(eps dtheta^2) ~ 1e-5) and gamma with it."""
+    tok = torus()
+    c = 0.3 * 2 * np.pi / 64
+    rotated = replace(tok, bmnc=tok.bmnc.at[:, 1].multiply(np.cos(c)), bmns=tok.bmns.at[:, 1].set(tok.bmnc[:, 1] * np.sin(c)))
+    run = lambda: drive(rotated, ((10, 6), (11, 6)), helical=0, nzeta=1, ntheta=64)  # noqa: E731
+    with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
+        patch.setattr(fax.drive, "_bmax", lambda b: jnp.max(b, axis=(1, 2)))
+        sampled = float(run())
+    assert abs(float(run()) / sampled - 1) > 1e-7

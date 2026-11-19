@@ -218,12 +218,18 @@ def ion_landau_damping(
 
 
 def _bmax(B: jax.Array) -> jax.Array:
-    """``max |B|`` per surface of ``B`` (S, T, Z): the largest sample ``b`` plus ``(a - c)^2 / (8 (2 b - a - c))`` of the parabola
-    through it and its neighbours ``a``, ``c`` in ``theta`` and in ``zeta`` (zero where they are equal). Never below the largest
-    sample; where two samples tie, the jump of its slope is O(dtheta^2) of that of the sampled maximum."""
-    i, at = jnp.argmax(B.reshape(len(B), -1), 1), lambda dt, dz: jnp.roll(B, (dt, dz), (1, 2)).reshape(len(B), -1)[jnp.arange(len(B)), i]
-    b = at(0, 0)
-    return b + sum((a - c) ** 2 / (8 * (2 * b - a - c) + (2 * b == a + c)) for a, c in ((at(1, 0), at(-1, 0)), (at(0, 1), at(0, -1))))
+    """``max |B|`` per surface of ``B`` (S, T, Z): the maximum of the quadratic fitted, with its cross term, on the periodic 3 x 3
+    stencil around the largest sample ``b``, ``b + g.M^-1 g / 2`` (``g`` the centred gradient, ``-M`` the Hessian in grid steps). It
+    is the 1-D parabola of the other angle where one angle is flat (``nzeta = 1``) and ``b`` where ``M`` is not positive definite,
+    so never below the largest sample. Error O(h^4) against O(h^2) for ``b``, also for a helical ridge."""
+    i = jnp.argmax(B.reshape(len(B), -1), 1)
+    at = lambda dt, dz: jnp.roll(B, (-dt, -dz), (1, 2)).reshape(len(B), -1)[jnp.arange(len(B)), i]  # B at (theta + dt, zeta + dz)
+    b, gt, gz = at(0, 0), (at(1, 0) - at(-1, 0)) / 2, (at(0, 1) - at(0, -1)) / 2
+    mt, mz, mtz = 2 * b - at(1, 0) - at(-1, 0), 2 * b - at(0, 1) - at(0, -1), (at(1, -1) + at(-1, 1) - at(1, 1) - at(-1, -1)) / 4
+    det = mt * mz - mtz**2
+    two = (mz * gt**2 - 2 * mtz * gt * gz + mt * gz**2) / (2 * jnp.where(det > 0, det, 1.0))
+    one = gt**2 / (2 * mt + (mt == 0)) + gz**2 / (2 * mz + (mz == 0))  # one angle flat: its terms vanish
+    return b + jnp.where(det > 0, two, jnp.where((mtz == 0) & (mt * mz == 0), one, 0.0))
 
 
 def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:
