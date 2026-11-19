@@ -72,13 +72,15 @@ def test_ae3d_ctok_archive_keeps_the_sign_and_symmetrizes_both_matrices():
     f2 = eig(*((M + M.T) / 2 for M in full.values()))
     assert np.abs(f2.imag).max() < 1e-3 and (f2.real < 0).sum() == 5  # measured 0
     rel = np.abs(np.sort(f2.real) / np.sort(lam) - 1)
-    assert rel.max() < 1e-4 and np.median(rel) < 2e-6  # float32 storage, 8 printed digits: measured 2.1e-5 and 4.9e-7
+    assert rel.max() < 1e-4 and np.median(rel) < 2e-6  # measured 2.1e-5, median 4.9e-7: the 8 printed digits (3.9e-5 in float64)
     raw = eig(full["a"], full["b"])  # without the symmetrization of A the spectrum is complex and 1.3% off
     assert np.abs(raw.imag).max() > 10 and np.abs(np.sort(raw.real) / np.sort(lam) - 1).max() > 5e-3
 
 
-# AE3D mode: FAX nodal match (kHz), nodal cosine, inertia-norm cosine there, best inertia-norm match (kHz), its cosine, Rayleigh
-# quotient of the AE3D vector on FAX's matrices (kHz). Measured on FAX matrices at 32 x 4 angles (collaborators' check, 2026-11)
+# Regression of this code, not an AE3D or published value: FAX's output on these matrices from an earlier independent run
+# (the collaborators' check of November 2026, FAX matrices at 32 x 4 angles), printed to 1e-3 kHz and 1e-4. Per AE3D mode: FAX
+# nodal match (kHz), nodal cosine, inertia-norm cosine there, best inertia-norm match (kHz), its cosine, Rayleigh quotient of
+# the AE3D vector on FAX's matrices (kHz). Plan step 1.7 gives only the numbers asserted separately in the test.
 CTOK_TABLE = {
     337.917: (272.770, 0.9066, 0.2293, 350.360, 0.4417, 329.330),
     343.649: (344.284, 0.9077, 0.7955, 344.284, 0.7955, 346.562),
@@ -88,6 +90,10 @@ CTOK_TABLE = {
     738.229: (744.995, 0.9173, 0.3709, 740.083, 0.6590, 748.712),
     741.207: (746.236, 0.9005, 0.0766, 744.486, 0.5108, 746.307),
 }
+# Regression of this code: the 337.92 kHz row with the J_par and pressure terms on (finite_beta=True), from this branch's first
+# run (2026-11-19). No independent number exists; the only independent fact is AE3D's own, an instrumented run with its current
+# and pressure terms off, which moves the mode to 338.18 kHz only. With these terms FAX's operator has 7 negative omega^2.
+CTOK_TAE_FINITE_BETA = (267.567150, 0.719529, 0.144951, 349.063701, 0.536742, 337.105379)
 
 
 def test_ae3d_ctok_parity():
@@ -95,33 +101,48 @@ def test_ae3d_ctok_parity():
 
     Per AE3D mode: the FAX mode of largest nodal cosine ``|u.v| / (|u| |v|)`` with its frequency, the inertia-norm cosine
     ``|u.G v| / sqrt(u.G u v.G v)`` there and its own best match, and the Rayleigh quotient of the AE3D vector on FAX's ``F``
-    and ``G``. Tolerances are two units of the last digit of the table. Six modes agree in frequency to 0.185-1.346% with
+    and ``G``. From plan step 1.7, to its printed digits (0.01 kHz, 1e-3): six modes agree in frequency to 0.185-1.346% with
     nodal cosine above 0.90; at 738.23 and 741.21 kHz the inertia-norm cosine is 0.371 and 0.077, so these two are frequency
-    matches only. The 337.92 kHz TAE stays unmatched (docs/validation.md, pinned block comparison).
+    matches only; the 337.92 kHz TAE is unmatched (nodal 0.907 at 272.77 kHz, inertia-norm 0.442 at 350.36 kHz, Rayleigh
+    quotient 329.33 kHz). The other entries are regressions (``CTOK_TABLE``, ``CTOK_TAE_FINITE_BETA``). A relative perturbation
+    of 1e-12 of ``F`` and ``G`` moves every frequency by at most 3.5e-9 kHz and every cosine by at most 1.7e-9 (measured), so
+    the regression tolerances are set by the printed digits: 1e-3 kHz and 1e-4 for the table, 1e-5 for the finite-beta row.
     """
     geo = fax.read_boozmn(DATA / "boozmn_ctok.nc").full_mesh()
     geo = jax.tree_util.tree_map(lambda a: jnp.concatenate([a, 2 * a[-1:] - a[-2:-1]]) if a.ndim and a.shape[0] == 98 else a, geo)
-    F, G = (np.asarray(dense(A)) for A in global_matrices(geo, fax.mode_family(2, 12), fax.mass_density(1e19, 2 * 1.00727647), 32, 4))
-    w, x = (np.asarray(a) for a in generalized_eigh(F, G))
+    matrices = lambda fb: global_matrices(geo, fax.mode_family(2, 12), fax.mass_density(1e19, 2 * 1.00727647), 32, 4, finite_beta=fb)  # noqa: E731
+    G = np.asarray(dense(matrices(False)[1]))
     ref = np.load(DATA / "ae3d_ctok_modes.npz")
     v = ref["vectors"].reshape(len(ref["khz"]), -1).astype(float)
-    khz = np.sqrt(w) / 2e3 / np.pi
     norm = lambda M, a: np.sqrt(np.einsum("ij,jk,ik->i", a.conj(), M, a).real)  # noqa: E731  rows of a
-    nodal = np.abs(v @ x) / np.linalg.norm(v, axis=1)[:, None] / np.linalg.norm(x, axis=0)[None]
-    inertia = np.abs(v @ G @ x) / norm(G, v)[:, None] / norm(G, x.T)[None]
-    best, best_g, k = nodal.argmax(1), inertia.argmax(1), np.arange(len(v))
-    rayleigh = norm(F, v) / norm(G, v) / 2e3 / np.pi
-    measured = np.stack([khz[best], nodal[k, best], inertia[k, best], khz[best_g], inertia[k, best_g], rayleigh], 1)
+
+    def compare(F):
+        w, x = (np.asarray(a) for a in generalized_eigh(F, G))
+        khz = np.sign(w) * np.sqrt(np.abs(w)) / 2e3 / np.pi
+        nodal = np.abs(v @ x) / np.linalg.norm(v, axis=1)[:, None] / np.linalg.norm(x, axis=0)[None]
+        inertia = np.abs(v @ G @ x) / norm(G, v)[:, None] / norm(G, x.T)[None]
+        best, best_g, k = nodal.argmax(1), inertia.argmax(1), np.arange(len(v))
+        rayleigh = norm(F, v) / norm(G, v) / 2e3 / np.pi
+        return np.stack([khz[best], nodal[k, best], inertia[k, best], khz[best_g], inertia[k, best_g], rayleigh], 1), (w < 0).sum()
+
+    measured, negative = compare(np.asarray(dense(matrices(False)[0])))
+    assert negative == 0
     np.testing.assert_allclose(ref["khz"], list(CTOK_TABLE), atol=5e-4)
-    table = np.array(list(CTOK_TABLE.values()))
-    np.testing.assert_allclose(measured[:, [0, 3, 5]], table[:, [0, 3, 5]], atol=2e-3)  # kHz
-    np.testing.assert_allclose(measured[:, [1, 2, 4]], table[:, [1, 2, 4]], atol=2e-4)  # cosines
+    np.testing.assert_allclose(measured[0, [0, 3, 5]], (272.77, 350.36, 329.33), atol=0.01)  # plan step 1.7
+    np.testing.assert_allclose(measured[0, [1, 4]], (0.907, 0.442), atol=1e-3)
+    np.testing.assert_allclose(measured[5:, 2], (0.371, 0.077), atol=1e-3)
     rel = measured[:, 0] / ref["khz"] - 1
+    assert np.abs(rel[1:]).min() == pytest.approx(0.00185, abs=1e-5) and np.abs(rel[1:]).max() == pytest.approx(0.01346, abs=1e-5)
     frequency = (measured[:, 1] > 0.9) & (np.abs(rel) < 0.015)
     shape = measured[:, 2] > 0.5
-    np.testing.assert_array_equal(frequency, [False] + [True] * 6)  # the TAE: nodal 0.907 at 272.77 kHz, 19% low
+    np.testing.assert_array_equal(frequency, [False] + [True] * 6)  # the TAE: 19% low
     np.testing.assert_array_equal(shape, [False, True, True, True, True, False, False])  # 738.23, 741.21: frequency only
-    assert np.abs(rel[1:]).min() == pytest.approx(0.00185, abs=1e-5) and np.abs(rel[1:]).max() == pytest.approx(0.01346, abs=1e-5)
+    table = np.array(list(CTOK_TABLE.values()))
+    np.testing.assert_allclose(measured[:, [0, 3, 5]], table[:, [0, 3, 5]], atol=1e-3)  # regression, kHz
+    np.testing.assert_allclose(measured[:, [1, 2, 4]], table[:, [1, 2, 4]], atol=1e-4)  # regression, cosines
+    tae, negative = compare(np.asarray(dense(matrices(True)[0])))  # the J_par and pressure blocks assembled
+    np.testing.assert_allclose(tae[0], CTOK_TAE_FINITE_BETA, atol=1e-5)  # regression: a change of either block shows here
+    assert negative == 7 and tae[0, 1] < 0.9  # still unmatched with the current terms
 
 
 def _ae3d_blocks(field, prof, h, shear=True, metric_mask=None, iota_only=False):

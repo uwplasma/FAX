@@ -210,7 +210,7 @@ quotient of the AE3D vector on FAX's $F$ and $G$ (32 × 4 angles, all 1287 FAX m
 
 A mode is matched in frequency when the nodal cosine exceeds 0.90 and the frequencies differ by less than 1.5%, and in shape
 when the inertia-norm cosine at that match exceeds 0.5. The nodal cosine weights every node and harmonic equally; the inertia
-norm weights them by $\mu_0\rho|\nabla\Phi|^2/B^2$, the energy of the mode. The test asserts every entry to two units of its last digit, so a change of the operator shows in the table.
+norm weights them by $\mu_0\rho|\nabla\Phi|^2/B^2$, the energy of the mode. The test asserts the numbers of plan step 1.7 to their printed digits (0.01 kHz, 1e-3) and the other entries, which are FAX's own output from an earlier independent run, as regressions to 1e-3 kHz and 1e-4 (a relative perturbation of 1e-12 of the matrices moves them by less than 4e-9). With the $J_\parallel$ and pressure terms on (`finite_beta=True`) the 337.92 kHz row is nodal 0.720 at 267.57 kHz, inertia-norm 0.537 at 349.06 kHz, Rayleigh quotient 337.11 kHz, and the operator has seven negative $\omega^2$; this is asserted as a regression of FAX, with no independent value to compare (AE3D's own run moves the mode only to 338.18 kHz when its current and pressure terms are off).
 
 The AE3D values come from the answer packet. `egn_values.dat` stores $\sqrt{f^2}$ for $f^2 \ge 0$ and $f^2$ itself for the
 five negative roots of the 1287, so the fixture keeps the signed $f^2$ of `egn_mode_asci.dat`. The exported matrices
