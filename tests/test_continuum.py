@@ -432,6 +432,20 @@ def test_dense_and_targeted_values_and_reverse_derivatives_agree(sine, parity):
     assert jax.grad(near_f)(0.1) == pytest.approx(jax.grad(dense_f)(0.1), rel=1e-7)
 
 
+def test_continuum_vanishes_at_the_rational_surface_and_families_match_a_full_torus_solve():
+    """Spong et al. (2003): every row of the continuum stiffness carries ``m iota - n``, so at ``m iota = n`` (here (5, 2) at
+    iota = 0.4) the spectrum has an exact zero on every surface, and none at iota = 0.41. The families ``n mod nfp`` do not
+    couple: their blocks give the spectrum of one full-torus solve of every listed harmonic on both signs (33 toroidal
+    points, not a multiple of nfp, so the whole turn), to 1e-12."""
+    rho, h = 3.4e-8, fax.mode_family((0, 2), 6, 1)
+    f = np.asarray(fax.continuum(stellarator(2), h, rho))
+    off = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.41, epsilon_B=0.1, nfp=2)
+    assert (f.min(1) < 1e-6 * f.max()).all() and (np.asarray(fax.continuum(off, h, rho)).min(1) > 1e-2 * f.max()).all()
+    h = fax.mode_family((0, 1, 2, 3), 3, 1)
+    full = fax.continuum(stellarator(2), np.unique(np.concatenate([h, -h]), axis=0), rho, 32, 33, parity="single")
+    np.testing.assert_allclose(fax.continuum(stellarator(2), h, rho, 32, 32), full, rtol=1e-12)
+
+
 def test_booz_xform_output_dictionary_matches_the_file_reader():
     """The traceable converter reads ``gmn_b`` when ``gmnc_b`` is absent and prefers ``gmnc_b`` when both are given."""
     from netCDF4 import Dataset
