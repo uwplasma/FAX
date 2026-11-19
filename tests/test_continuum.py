@@ -307,6 +307,18 @@ def test_constructors_state_the_facts_under_jit():
     np.testing.assert_allclose(jax.jit(design)(out), design(out), rtol=1e-12)
 
 
+def test_a_stated_fact_must_agree_with_concrete_arrays():
+    """A fact stated to a constructor is trusted only where the arrays are traced; on the host it must equal the computed one,
+    otherwise a compiled call would solve a different problem from the eager one (a sine harmonic of |B| on the real path)."""
+    g = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 3), iota=0.4, epsilon_B=0.1)
+    arrays = {k: getattr(g, k) for k in ("s", "xm", "xn", "bmnc", "rmnc", "zmns", "gmnc", "iota", "G", "I")}
+    assert fax.Geometry.from_arrays(1, **arrays, stellsym=True).stellsym
+    with pytest.raises(ValueError, match="stellsym=True contradicts"):
+        fax.Geometry.from_arrays(1, **arrays, bmns=0.01 * g.bmnc, stellsym=True)
+    with pytest.raises(ValueError, match="axisymmetric=False contradicts"):
+        fax.Geometry.from_arrays(1, **arrays, axisymmetric=False)
+
+
 def test_one_period_average_is_refused_when_a_toroidal_number_is_not_a_multiple_of_nfp():
     """``nfp = 2`` with an ``n = 1`` harmonic of ``R`` and ``Z``: the field has no half-turn period, so the averages over one
     period drop the ``dn = 1`` couplings. The host refuses the inconsistent geometry; a traced ``xn`` cannot be checked and

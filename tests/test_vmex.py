@@ -36,6 +36,31 @@ def test_vmec_input_to_continuum():
 
 
 @pytest.mark.slow
+def test_design_path_of_a_symmetric_state_is_real_under_jit():
+    """Inside ``jax.jit`` the asymmetric tables of a vmex state are traced zeros, so only the runtime's ``lasym`` says the state
+    is stellarator symmetric. ``state_geometry`` states it: the self-conjugate n = 1 family (nfp = 2) is then its two real
+    sectors under ``jax.jit``, as eagerly, and the compiled design frequencies equal the eager ones."""
+    from fax.continuum import spectral_blocks
+    from fax.eigen import global_matrices
+    from fax.objectives import geometry_frequencies, state_geometry
+
+    design = fax.prepare_design(INPUT, harmonics=fax.mode_family((1, 3), 3), density=3.4e-8, nodes=8, mboz=4, nboz=4)
+    state, runtime = fax.design_state(jnp.zeros(1), design)
+    parities = []
+
+    def sector(s, r):
+        geo = state_geometry(s, r, design)
+        parities.extend(b.parity for b in spectral_blocks(geo, design.harmonics))
+        return global_matrices(geo, design.harmonics, design.density, parity=1)[0].diag
+
+    assert jax.eval_shape(sector, state, runtime).dtype == jnp.float64 and parities == [1, -1]
+    geo = fax.design_geometry(jnp.zeros(1), design)
+    assert geo.stellsym and fax.geometry.symmetric(geo)
+    eager = geometry_frequencies(geo, design)[0]
+    np.testing.assert_allclose(jax.jit(lambda g: geometry_frequencies(g, design)[0])(geo), eager, rtol=1e-10)
+
+
+@pytest.mark.slow
 def test_regression_lpqa_gap_modes_on_both_signs():
     """Regression, labelled as such (plan 8.3): the n = 1 family of LP-QA (Landreman and Paul 2022) on both signs has three
     modes in 102-105 kHz, 103.128, 103.946, 104.840 kHz at 24 FE nodes (102.355 and 104.579 on one sign) and 102.616,
@@ -61,11 +86,13 @@ def test_boundary_gradient_and_radial_refinement():
     gradient matches the re-solve FD to 3e-5: the remainder is vmex's released
     m = 1 gauge, which the adjoint holds fixed and each re-solve lets drift
     (closure to 3e-9 on iota, plan.md P3). The lowest eigenvalue is the
-    continuum minimum, so both it and its gradient converge at first order.
+    continuum minimum, so both it and its gradient converge at first order. That holds for the single-sign basis, whose
+    m = 1 branch has its minimum at the edge; on both signs the branch splits into a cosine branch (minimum at s = 0.03) and a
+    sine branch, and uniform nodes sample the near-axis minimum unevenly.
     """
     h = 1e-4
     harmonics = [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]
-    design = fax.prepare_design(INPUT, harmonics=harmonics, density=3.4e-8, parameters=("zs01",), ntheta=8, nzeta=8)
+    design = fax.prepare_design(INPUT, harmonics=harmonics, density=3.4e-8, parameters=("zs01",), ntheta=16, nzeta=8, parity="single")
     g0, gp, gm = (fax.design_geometry(jnp.array([x]), design) for x in (0.0, h, -h))
     dg = jax.tree_util.tree_map(lambda a, b: (a - b) / (2 * h), gp, gm)
     values, grads = [], []
@@ -151,6 +178,36 @@ def test_stellarator_drive_gradient_and_sidebands():
     side = jnp.sum(jnp.where(pairs[:, 1] != 1, gam, 0.0))
     pure = jnp.sum(jnp.where(jnp.abs(pairs[:, 1]) > 3, jnp.abs(gam), 0.0))  # k = -3, 5: only through the helical B harmonics
     assert jnp.all(jnp.isfinite(gam)) and 1e-6 < abs(side / jnp.sum(gam)) < 1e-2 and pure > 0
+
+
+@pytest.mark.slow
+def test_near_degenerate_sector_pair_is_driven_as_its_travelling_waves():
+    """Plan 8.5. The LP-QA n = 1 sine and cosine modes near 104.4 and 104.6 kHz are about 1400 rad/s apart while the drive
+    couples them at about 1.6e4 1/s, so the physical modes are the travelling combinations. Independently, on the two-sign
+    list (``parity="single"``, the complex path) through ``growth_rate`` read as travelling: the rate of
+    ``y_a + exp(i phi) y_b`` at the mean frequency is ``c + R cos(phi - phi_0)``, and ``c +- R`` are the travelling rates.
+    ``geometry_growth_rates`` gives them to within ``delta omega^2 / (8 R)`` (about 16 1/s, here allowed 40), the shift
+    the splitting adds."""
+    h = fax.mode_family((1, -1, 3), 5)
+    design = fax.prepare_design(
+        INPUT, harmonics=h, density=3.4e-8, parameters=("rc01",), nodes=16, ntheta=16, nzeta=16, target_hz=104e3, count=4
+    )
+    ions = fax.FastIons(density=1e15 * (1 - jnp.arange(1, 17) / 17) ** 2, temperature_ev=150e3)
+    g0 = fax.design_geometry(jnp.zeros(1), design)
+    geo = g0.interpolate(jnp.arange(1, 17) / 17)
+    both = np.unique(np.concatenate([h, -h]), axis=0)
+    ev = fax.eigenmodes(geo, both, 3.4e-8, target_hz=104e3, count=4, ntheta=16, nzeta=16, parity="single")
+    w = np.sqrt(np.asarray(ev.omega2))
+    a = int(np.argmin(np.diff(w)))  # the closest pair
+    assert np.diff(w)[a] < 2e3
+    pair = lambda phi: ev.structures[a] + np.exp(1j * phi) * ev.structures[a + 1]  # noqa: E731
+    rate = lambda phi: fax.growth_rate(w[a : a + 2].mean(), pair(phi), geo, both, ions, 3.4e-8, ntheta=32, nzeta=32)  # noqa: E731
+    g = [float(rate(p)) for p in (0.0, np.pi / 2, np.pi, 1.5 * np.pi)]
+    c, R = np.mean(g), np.hypot(g[0] - g[2], g[1] - g[3]) / 2
+    assert R > 10 * np.diff(w)[a] ** 2 / R  # coupling above splitting: the travelling regime
+    got = np.sort(np.asarray(fax.geometry_growth_rates(g0, design, ions, 4, ntheta=32, nzeta=32)))
+    near = got[np.argsort(np.abs(got - c))[-2:]]  # the pair, farthest from the diagonal mean
+    np.testing.assert_allclose(np.sort(near), [c - R, c + R], atol=40.0)
 
 
 @pytest.mark.slow

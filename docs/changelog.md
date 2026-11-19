@@ -11,6 +11,18 @@ What changes for users of 1.2.0:
 - `ntheta` and `nzeta` of `continuum`, `continuum_matrices`, `global_matrices` and `eigenmodes` default to `None`: the
   smallest even grid that does not alias the assembled harmonics, at least 32 ({func}`fax.continuum.grid_size`). Lists that
   fit 32 points keep the 1.2.0 grid; wider ones, which 1.2.0 refused by default, get a finer grid.
+- The design path (`geometry_frequencies`, `design_frequencies`, `geometry_growth_rates`), `summary` and the case runner use
+  the same default basis. A vmex state without `lasym` is stated stellarator symmetric, so the design path solves real
+  sectors under `jax.jit`. The quasi-axisymmetric example `examples/qa_vmex.py` moves from 294.11, 294.44, 294.92 kHz to
+  245.55, 245.76, 246.06 kHz. The case file key `run.parity` is `"auto"` (default), `"single"`, `1` or `-1`, and
+  `ntheta = nzeta = 0` there means the default grid.
+- `geometry_growth_rates` drives the modes of cosine and sine sectors as pairs (`fax.drive.pair_rates`): a mode and its
+  nearest partner of the other sector form the 2 x 2 ledger of plan 8.5 (frequencies on the diagonal, the drive matrix
+  in one wave energy) and get its two rates. Far apart in frequency these are the standing-wave rates; for the LP-QA pair
+  near 104.5 kHz, 1412 rad/s apart and coupled at 1.6e4 1/s, they are +15805 and -16173 1/s, the travelling waves.
+  Travelling modes go through `fax.eigen.travelling`.
+- `mode_families` groups a real potential: one group per $|n|$ in a tokamak and one per pair $\{N, -N\}$ of
+  $N = n \bmod N_{fp}$ in a stellarator, instead of one per $n$ and one per $N$.
 - `mode_family` returns a NumPy array instead of a JAX array: harmonics are static host data.
 - `growth_rate(..., standing=True)` gives the drive of a cosine- or sine-sector mode, the standing wave of its two
   travelling components; without it the mode is read as a travelling wave, as in 1.2.0. The standing rate is the mode's
@@ -29,3 +41,5 @@ What stops working:
   inside `jax.jit`) is refused by the default basis when the list holds more than one $|n|$: axisymmetry decides whether
   they couple, and the eager call, which knows it, would return a different number of branches (9 against 12 on the
   test field). Build the geometry on the host, or use `parity="single"`.
+- A stated symmetry fact (`Geometry.from_arrays(..., stellsym=True)`) that the concrete arrays contradict raises.
+- A basis that mixes sector modes with travelling modes is refused by `geometry_growth_rates`.
