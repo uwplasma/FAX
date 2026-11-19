@@ -346,3 +346,18 @@ def test_zow_curve_is_bracketed_by_the_passing_only_drive():
     for t, zow in ZOW.items():
         gam = float(tae_gamma(float(t)))
         assert 0.5 < gam / (zow * 1e3) < 0.7 and gam / 4e5 < 0.05
+
+
+def test_a_sector_mode_is_driven_as_the_standing_wave_of_its_two_travelling_components():
+    """A cosine- or sine-sector mode ``x`` of :func:`fax.eigenmodes` is the standing wave ``Re sum x_h exp(i(m theta - n zeta))``,
+    the sum of the travelling waves ``x / 2`` on ``(m, n)`` and ``conj(x) / 2`` on ``(-m, -n)``. In a tokamak with ``helical = 0``
+    they resonate at ``k = n`` and ``k = -n`` and share the energy ``W / 2`` each, so they do not interfere and
+    ``gamma = (gamma_+ + gamma_-) / 2`` exactly (``nzeta = 32`` resolves their ``exp(2 i n zeta)`` product). The counter-propagating
+    wave is damped by the gradient term, which changes sign with ``j``, so the standing rate is far from ``gamma_+``."""
+    tok, harm, opt = torus(), np.array([[10.0, 6.0], [11.0, 6.0]]), dict(helical=0, nzeta=32)
+    plus, minus = drive(tok, harm, **opt), drive(tok, -harm, **opt)
+    assert plus > 0 > minus
+    for phi in (MODE, -1j * MODE):  # a cosine- and a sine-sector structure
+        assert drive(tok, harm, phi=phi, standing=True, **opt) == pytest.approx((plus + minus) / 2, rel=1e-10)
+    two_signs = drive(tok, np.concatenate([harm, -harm]), phi=jnp.concatenate([MODE, MODE], 1) / 2, **opt)
+    assert drive(tok, harm, standing=True, **opt) == pytest.approx(two_signs, rel=1e-12)
