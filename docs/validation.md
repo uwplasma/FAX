@@ -38,7 +38,7 @@ gate is not met or not yet run. The numbers behind each row are in the detailed 
 | Uniform-field global spectrum is a continuum | `test_uniform_field_spectrum_is_a_continuum` | edges within $0.5/N$; mode width ∝ $1/N$ (N = 40, 160) |
 | AE3D CTOK global modes | `test_ae3d_ctok_parity` | 6 modes within 1.4%, overlap > 0.9 |
 | AE3D CTOK TAE (337.9 kHz) | `test_ae3d_v31_blocks_and_energy_on_identical_inputs` | not reproduced: three $\iota'$ terms of AE3D v31's bending blocks differ from the energy; pinned block comparison below |
-| Independent 3-D spectrum, precise QA of Knyazev et al. 2026 (STELLGAP continuum, AE3D gap band) | `test_stellgap_continuum_parity`, `test_ae3d_gap_band_in_the_sine_basis` | continuum 3.0e-3 mean (gate 4e-3); archived global mode within 2% in energy at 24-64 harmonics, 5.1% at AE3D's 162; no single-mode match (overlap 0.18) |
+| Independent 3-D spectrum, precise QA of Knyazev et al. 2026 (STELLGAP continuum, AE3D gap band) | `test_stellgap_continuum_parity`, `test_parity_sectors_split_the_two_sign_problem_and_cos_is_stellgaps_basis`, `test_ae3d_gap_band_in_the_sine_basis` | continuum 1.6e-3 mean in STELLGAP's cosine sector (gate 2e-3), 3.0e-3 in the single-sign basis; archived global mode within 2% in energy at 24-64 harmonics, 5.1% at AE3D's 162; no single-mode match (overlap 0.18) |
 | Exact sheared 3-D manufactured solution (benchmark of uwplasma/fax#9) | `test_manufactured_solution_and_regular_axis_interpolation` | nodal error 9e-3, 3.1e-3, 8.9e-4 at N = 16, 32, 64 (→ second order) |
 | Bending and inertia vs real-space quadrature | `test_ctok_bending_energy_matches_real_space_quadrature` | 0.3% (gate 0.5%) |
 | Conventions ({ref}`conventions`), embedding Jacobian vs the Boozer identity, force balance | `test_conventions_and_geometry_diagnostics_on_ctok`, `test_konies_itpa_finite_beta_tae` | CTOK $\psi'$ = 0.04509 to 0.4% and angular spread $\le$ 5e-5 for $s \ge 0.05$ (first surface 15% low); force-balance $B_s$ vs embedding $\le$ 1e-5 of $\lvert B\rvert$; ITPA ($\psi' = 3\pi/2\pi$): 0.3% for $s \ge 0.1$ (the first four surfaces up to 4.5% off), spread $\le$ 3e-4, force balance $\le$ 8e-5, $\mu_0p'$ vs the input's `AM` to 0.15% |
@@ -343,8 +343,8 @@ $(m, n), (-m, -n)$ restricted to the odd subspace (`parity=-1`).
 ```
 
 **Continuum.** STELLGAP labels surface $k$ one cell (0.02) outward, as for CTOK. On its 98 stored surfaces (162 sorted
-branches each) the relative L2 error is mean 3.0e-3, p95 3.4e-3, max 4.3e-3 in the complex basis of the harmonic list
-(3.5e-3 mean, 4.4e-3 max in the odd sector; 1.6e-3 mean, 2.6e-3 max in the even sector, which is STELLGAP's cosine basis, `parity=1`), unchanged between grids of 48 x 32 and 112 x 72 where unaliased. The branches
+branches each) the relative L2 error is mean 1.6e-3, p95 2.5e-3, max 2.6e-3 in the cosine sector, STELLGAP's own basis
+(`parity=1`; the default returns this sector and the sine sector together, theory section 2), 3.6e-3 mean, 4.4e-3 max in the sine sector, and 3.0e-3 mean, 4.3e-3 max in the single-sign basis of the harmonic list (`parity="single"`), unchanged between grids of 48 x 32 and 112 x 72 where unaliased. The branches
 that bracket the archived global mode's gap at $s > 0.25$ agree to 1.0% (the lower, median 0.4%) and 3.0% (the upper, near 35 kHz, median 1%). The
 spectrum of AE3D is dense: only 3 of its 7938 eigenvalues above 5 kHz are 1% from both neighbours, so **no isolated
 frequency exists** in this case, and 56 eigenvalues are negative (AE3D's own, down to $-84$ kHz$^2$); FAX's operator is
@@ -450,7 +450,7 @@ solve converged and the selection does not split a tied set. Each route is teste
   steps), and along `zs01` it reaches a non-finite state after 10 steps. The `zs11` and `zs01` sensitivities
   are therefore verified to the floors above and not to 1e-5, and `plan.md` keeps that item open.
 
-**Resolution budget of the real objective.** The lowest of the two $n = 1$ gap modes of LP-QA (102 kHz, next section) and
+**Resolution budget of the real objective** (single-sign basis, `parity="single"`, computed before the default changed; not rerun). The lowest of the two $n = 1$ gap modes of LP-QA (102 kHz, next section) and
 its gradient in the four coefficients of the QA example (`rc11, zs11, rc12, zs12`). Base: 24 FE nodes, $n_s = 16$,
 `mboz = nboz = 6`, $16 \times 16$ angles, $m \le 5$ ($f$ = 101.8964 kHz). One resolution is refined at a time
 (`test_resolution_budget_of_the_gap_mode_frequency_and_gradient`, scheduled tier); the change is between the two finest
@@ -514,7 +514,7 @@ is a statement about that branch, not about a mode that a fast ion could resonat
 test of the gradient chain (it is what the gradient tests above differentiate for the continuum minimum), and is kept in
 the example as `--modes continuum`.
 
-**QA: global modes out of a window.** The three lowest $n = 0$ global modes
+**QA: global modes out of a window** (single-sign basis, as above; with the default the first evaluation gives 245.55, 245.76, 246.06 kHz). The three lowest $n = 0$ global modes
 ($m = 1$–3, 24 nodes) start at 294.10–294.92 kHz inside
 [293.10, 314.92] kHz; 4 coefficients (`rc11, zs11, rc12, zs12`),
 30 evaluations, 18 min:

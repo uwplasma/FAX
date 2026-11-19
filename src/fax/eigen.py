@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 import solvax
 
-from .continuum import MU0, angle_mean, check_modes, generalized_eigh, parity_basis
+from .continuum import MU0, angle_mean, block_matrices, check_modes, generalized_eigh, grid_size, on_rows, parity_basis, spectral_blocks
 from .geometry import Geometry, _d_ds, check, field_period, surface_grid, symmetric
 
 
@@ -81,12 +81,13 @@ def global_matrices(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     finite_beta: bool = False,
     parity: int | None = None,
 ) -> tuple[Blocks, Blocks]:
-    """Bending ``F`` and inertia ``G`` (``w^2`` in rad^2/s^2); surfaces must lie strictly inside ``(0, 1)``.
+    """Bending ``F`` and inertia ``G`` (``w^2`` in rad^2/s^2); surfaces must lie strictly inside ``(0, 1)``. ``ntheta`` and
+    ``nzeta`` default to the smallest unaliased grid, at least 32 (:func:`fax.continuum.grid_size`).
 
     ``finite_beta`` (restricted, experimental: no sound or full-MHD claim) adds the Hermitian parts of the ``J_par`` (kink)
     and pressure-curvature terms of ``delta W`` (see :func:`equilibrium_currents` and ``docs/theory.md``, section 4)::
@@ -100,6 +101,7 @@ def global_matrices(
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
     h, project = parity_basis(geo, h, parity)
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
     period = field_period(geo, nzeta)
     F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta, period), h, density, finite_beta, period)
     return jax.tree_util.tree_map(project, (F, G)) if symmetric(geo) else (F, G)
@@ -347,6 +349,69 @@ def _growth(omega2: jax.Array) -> jax.Array:
     return _root(-omega2)
 
 
+def solve(
+    geo: Geometry,
+    harmonics: Any,
+    density: Any,
+    target: Any = None,
+    count: int = 8,
+    iters: int = 100,
+    tol: float = 1e-10,
+    parity: Any = None,
+    vectors: bool = True,
+    **grid: Any,
+) -> tuple[jax.Array, Any, Status]:
+    """``(omega2, x, status)`` of the real potential on ``harmonics`` (:func:`fax.continuum.spectral_blocks`): every eigenvalue
+    (``target=None``, dense) or the ``count`` nearest ``target`` (rad^2/s^2, shift-invert), ascending, merged over the blocks.
+    ``x`` (``(modes, surfaces, H)``, or ``None`` without ``vectors``) holds the coefficients of the listed harmonics
+    (:func:`fax.continuum.on_rows`). Values carry first-order derivatives; a selection that splits a tie across blocks has
+    NaN tangents, as within one (:func:`targeted_eigenpairs`)."""
+    h = np.asarray(harmonics, dtype=float)
+    blocks = spectral_blocks(geo, h, parity)
+    plain = len(blocks) == 1 and blocks[0].parity is None and (blocks[0].sign > 0).all() and (blocks[0].rows == np.arange(len(h))).all()
+    parts, cache = [], {}
+    assemble = lambda h, p: global_matrices(geo, h, density, parity=p, **grid)  # noqa: E731
+    for b in blocks:
+        F, G = block_matrices(assemble, geo, b, cache)
+        N, H = F.diag.shape[:2]
+        if target is None:
+            K, M = dense(F), dense(G)
+            lam, y = generalized_eigh(K, M)
+            status = _dense_status(K, M, lam, y, tol)
+            lam = lam if vectors else lowest_eigenvalues(K, M, N * H)  # exact first derivatives without the vectors
+            y = jnp.swapaxes(y, 0, 1).reshape(-1, N, H)
+        else:
+            lam, y, status = targeted_eigenpairs(F, G, target, min(count, N * H), iters, tol)
+            y = jnp.moveaxis(y, -1, 0)
+        if plain:
+            return lam, y if vectors else None, status
+        parts.append((lam, on_rows(y, b, len(h)) if vectors else None, status))
+    lam = jnp.concatenate([p[0] for p in parts])
+    st = [p[2] for p in parts]
+    if target is None:
+        order, gap = jnp.argsort(lam), jnp.asarray(jnp.inf)
+    else:
+        d = jnp.abs(lam - target)
+        near = jnp.argsort(d)[:count]
+        far = jnp.max(d[near])
+        excluded = jnp.min(jnp.where(jnp.zeros_like(d, bool).at[near].set(True), jnp.inf, d))
+        own = jnp.min(jnp.stack([jnp.max(jnp.abs(p[0] - target)) + p[2].gap for p in parts]))  # each block's next value
+        order, gap = near[jnp.argsort(lam[near])], jnp.minimum(excluded, own) - far
+    merged = lambda f, how: how(jnp.stack([f(t) for t in st]))  # noqa: E731
+    status = Status(
+        merged(lambda t: t.residual, jnp.max),
+        merged(lambda t: t.orthogonality, jnp.max),
+        merged(lambda t: t.iterations, jnp.max),
+        merged(lambda t: t.converged, jnp.all),
+        gap,
+        merged(lambda t: t.fallback, jnp.any),
+    )
+    lam = lam[order]
+    if target is not None:
+        lam = _certified(lam, selected(status.converged, gap, lam))
+    return lam, jnp.concatenate([p[1] for p in parts])[order] if vectors else None, status
+
+
 def eigenmodes(
     geo: Geometry,
     harmonics: Any,
@@ -356,23 +421,20 @@ def eigenmodes(
     count: int = 8,
     iters: int = 100,
     tol: float = 1e-10,
+    parity: Any = None,
     **grid: Any,
 ) -> Eigenmodes:
-    """Global eigenmodes: all of them densely, or ``count`` nearest ``target_hz`` by :func:`targeted_eigenpairs`.
+    """Global eigenmodes of the real potential on ``harmonics``: all of them densely, or ``count`` nearest ``target_hz``.
 
-    ``grid`` (``ntheta``, ``nzeta``) is passed to :func:`global_matrices`. ``status`` reports the solve
-    (``iterations`` is 0 for the dense solve); unlike :func:`frequency_hz`, the modes are returned even if not ``converged``.
+    The blocks of :func:`fax.continuum.spectral_blocks` are solved separately and merged (:func:`solve`); ``parity="single"``
+    keeps the list as given and ``1`` or ``-1`` one sector. ``structures`` are the coefficients ``x`` of the listed
+    harmonics, the potential being ``Re sum x exp(i(m theta - n zeta))``. ``grid`` (``ntheta``, ``nzeta``, ``finite_beta``)
+    goes to :func:`global_matrices`. ``status`` reports the solve (``iterations`` is 0 for the dense solve); unlike
+    :func:`frequency_hz`, the modes are returned even if not ``converged``.
     """
     check(target_hz is None or (jnp.isfinite(target_hz) & (target_hz > 0)), "target_hz must be finite and positive")
-    F, G = global_matrices(geo, harmonics, density, **grid)
-    N, H = F.diag.shape[:2]
-    if target_hz is None:
-        K, M = dense(F), dense(G)
-        omega2, x = generalized_eigh(K, M)
-        status, x = _dense_status(K, M, omega2, x, tol), jnp.swapaxes(x, 0, 1).reshape(-1, N, H)
-    else:
-        omega2, y, status = targeted_eigenpairs(F, G, (2 * jnp.pi * target_hz) ** 2, count, iters, tol)
-        x = jnp.moveaxis(y, -1, 0)
+    target = None if target_hz is None else (2 * jnp.pi * target_hz) ** 2
+    omega2, x, status = solve(geo, harmonics, density, target, count, iters, tol, parity, **grid)
     return Eigenmodes(geo.s, omega2, _hz(omega2), x, _growth(omega2), status)
 
 
@@ -391,12 +453,20 @@ def frequency_hz(
 
     The stable frequency is 0 if the mean ``omega^2 <= 0``; ``growth=True`` returns ``sqrt(-mean omega^2)`` (1/s)
     instead. Both have finite gradients. With a target the result is NaN unless the solve converged to ``tol``.
-    ``options`` are ``count``, ``iters`` and ``tol`` for the targeted solve and the grid sizes.
+    ``options`` are ``count``, ``iters`` and ``tol`` for the targeted solve, ``parity`` (as in :func:`eigenmodes`) and the
+    grid sizes.
     """
     solver, grid = split_solver(options)
-    F, G = global_matrices(geo, harmonics, density, **grid)
-    if target_hz is None:
-        mean = eigenvalue_mean(dense(F), dense(G), start, stop)
+    parity = grid.pop("parity", None)
+    blocks = spectral_blocks(geo, harmonics, parity)
+    if len(blocks) == 1:  # one pencil: the cluster mean keeps exact first derivatives through crossings inside it
+        F, G = global_matrices(geo, blocks[0].harmonics, density, parity=blocks[0].parity, **grid)
+        if target_hz is None:
+            mean = eigenvalue_mean(dense(F), dense(G), start, stop)
+        else:
+            mean = jnp.mean(targeted_eigenvalues(F, G, (2 * jnp.pi * target_hz) ** 2, **solver)[start:stop])
     else:
-        mean = jnp.mean(targeted_eigenvalues(F, G, (2 * jnp.pi * target_hz) ** 2, **solver)[start:stop])
+        target = None if target_hz is None else (2 * jnp.pi * target_hz) ** 2
+        lam, _, status = solve(geo, harmonics, density, target, **solver, parity=parity, vectors=False, **grid)
+        mean = jnp.mean(lam[start:stop]) + (0.0 if target is None else jnp.where(status.converged, 0.0, jnp.nan))
     return _growth(mean) if growth else _hz(mean)

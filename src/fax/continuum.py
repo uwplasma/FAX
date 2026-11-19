@@ -23,9 +23,10 @@ from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.scipy.linalg import solve_triangular
 
-from .geometry import Geometry, check, field_period, surface_grid, symmetric
+from .geometry import Geometry, axisymmetric, check, field_period, surface_grid, symmetric
 
 MU0 = 4.0e-7 * jnp.pi
 AMU = 1.66053906660e-27
@@ -43,11 +44,11 @@ def mass_density(n_ion: Any, ion_mass_amu: float = 1.0) -> jax.Array:
     return jnp.asarray(n_ion) * ion_mass_amu * AMU
 
 
-def mode_family(n: int | tuple[int, ...], m_max: int, m_min: int = 0) -> jax.Array:
+def mode_family(n: int | tuple[int, ...], m_max: int, m_min: int = 0) -> np.ndarray:
     """Harmonics ``(m, n)`` for ``m_min <= m <= m_max`` and the given toroidal mode numbers."""
     ns = (n,) if isinstance(n, Integral) else tuple(n)
     check(m_max >= m_min, f"m_max={m_max} must be >= m_min={m_min}")
-    return jnp.asarray([[m, nn] for nn in ns for m in range(m_min, m_max + 1)], dtype=float)
+    return np.asarray([[m, nn] for nn in ns for m in range(m_min, m_max + 1)], dtype=float)  # host data: harmonics are static
 
 
 def check_modes(geo: Geometry, h: jax.Array, density: Any) -> None:
@@ -123,30 +124,33 @@ def continuum_matrices(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     pressure: Any = None,
     gamma: float = 5.0 / 3.0,
-    parity: int | None = None,
+    parity: int | str | None = None,
 ) -> Matrices:
     """Assemble the per-surface continuum matrices with FFT-exact angle quadrature.
 
     Raises ``ValueError`` (host inputs only) unless ``rho > 0``, ``G + iota I != 0`` and the grid
     resolves the requested couplings: ``ntheta > 2 max|dm|`` and ``nzeta > 2 max|dn|``, since
-    ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``.
+    ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``. ``None`` picks the smallest
+    such grid, at least 32 (:func:`grid_size`).
 
     ``pressure`` (Pa, a scalar or one value per surface; default ``None`` = off) adds the acoustic coupling of
     :func:`sound_coupling` with adiabatic index ``gamma``: the matrices become ``2H x 2H``, the first ``H`` unknowns the
     surface displacement and the last ``H`` the parallel displacement over ``|B|``. Include ``-m`` and ``m`` (``mode_family``
     with ``m_min < 0``) when ``n = 0``, since the geodesic curvature couples ``m`` to ``-m`` through the conjugate sideband.
 
-    ``parity`` (stellarator-symmetric host geometry only) solves one real sector of the physical potential: ``1`` the
-    ``cos(m theta - n zeta)`` basis (STELLGAP's), ``-1`` the ``sin`` basis (AE3D's); see :func:`parity_basis`.
+    These are the matrices of the list as given (``parity=None`` or ``"single"``); :func:`continuum` combines the blocks of
+    :func:`spectral_blocks`. ``parity`` (stellarator-symmetric host geometry only) gives one real sector of the potential: ``1``
+    the ``cos(m theta - n zeta)`` basis (STELLGAP's), ``-1`` the ``sin`` basis (AE3D's); see :func:`parity_basis`.
     """
     h = jnp.asarray(harmonics, dtype=float)
     check_modes(geo, h, density)
     h, project = parity_basis(geo, h, parity)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
     period = field_period(geo, nzeta)
@@ -162,7 +166,7 @@ def continuum_matrices(
     return jax.tree_util.tree_map(project, KM) if symmetric(geo) else KM
 
 
-def parity_basis(geo: Geometry, h: jax.Array, parity: int | None) -> tuple[jax.Array, Any]:
+def parity_basis(geo: Geometry, h: jax.Array, parity: int | str | None) -> tuple[jax.Array, Any]:
     """Harmonics and the map applied to each assembled matrix: ``(h, real part)`` without ``parity``.
 
     The single-sign basis ``exp(i(m theta - n zeta))`` of ``h`` drops the coupling of ``(m, n)`` to ``(-m', -n')`` through
@@ -174,7 +178,7 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | None) -> tuple[jax.A
     Symmetry is read from the asymmetric harmonics as host zeros (:func:`fax.geometry.symmetric`), so a sector is refused
     with ``ValueError`` for a traced geometry, as under ``jax.jit`` of a function of the geometry; ``parity=None`` works there.
     """
-    if parity is None:
+    if parity is None or parity == "single":
         return h, jnp.real
     check(parity in (1, -1), "parity must be 1 (cos sector) or -1 (sin sector)")
     check(symmetric(geo), "parity sectors need a stellarator-symmetric geometry")
@@ -187,6 +191,92 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | None) -> tuple[jax.A
         return jnp.einsum("ia,...ij,jb->...ab", Q, A, Q).real
 
     return jnp.concatenate([h, -h]), project
+
+
+def grid_size(harmonics: Any, ntheta: int | None, nzeta: int | None, parity: Any = None) -> tuple[int, int]:
+    """``(ntheta, nzeta)``, each ``None`` replaced by ``max(32, 2 max|d| + 2)`` over the differences of the assembled harmonics:
+    the smallest even grid that does not alias them (a parity sector holds ``(m, n)`` and ``(-m, -n)``, so it needs twice the
+    span). Traced harmonics give 32."""
+    if isinstance(harmonics, jax.core.Tracer):
+        return ntheta or 32, nzeta or 32
+    h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
+    h = np.concatenate([h, -h]) if parity in (1, -1) else h
+    auto = lambda c: max(32, int(2 * np.ptp(h[:, c]) + 2) if len(h) else 32)  # noqa: E731
+    return (auto(0) if ntheta is None else ntheta), (auto(1) if nzeta is None else nzeta)
+
+
+class Block(NamedTuple):
+    """One independent pencil of :func:`spectral_blocks`: assemble ``harmonics`` with ``parity``; its unknown ``k`` is
+    ``sign[k]`` times the harmonic of row ``rows[k]`` of the user's list."""
+
+    harmonics: np.ndarray
+    parity: int | None
+    rows: np.ndarray
+    sign: np.ndarray
+
+
+def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = None) -> list[Block]:
+    """The independent pencils of the real potential spanned by ``harmonics`` (default) or the requested basis.
+
+    A real potential holds ``(m, n)`` and ``(-m, -n)`` together. The operator couples ``(m, n)`` to ``(-m', -n')`` through the
+    field harmonic ``(m + m', n + n')``, present when ``n + n'`` is a multiple of ``nfp`` (``n + n' = 0`` in an axisymmetric
+    field), which the single-sign list drops. The default therefore solves the list on both signs, split into the blocks
+    that do not couple: a family ``N = n mod nfp`` with its conjugate ``-N`` is one complex pencil on ``(m, n)`` of family
+    ``N`` and ``(-m, -n)`` of family ``-N`` (the conjugate pencil has the same eigenvalues and is skipped); a self-conjugate
+    family (``N = -N``: ``N = 0`` or ``nfp / 2``, or ``n = 0`` in a tokamak) is its cosine and sine sectors, real, when the
+    geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
+    is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
+    earlier are dropped. A traced geometry counts as asymmetric, and as axisymmetric when ``nfp = 1`` (:func:`fax.geometry.axisymmetric`).
+    ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
+    """
+    h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
+    every = np.arange(len(h))
+    if parity is not None or not len(h):
+        return [Block(h, None if parity == "single" else parity, every, np.ones(len(h)))]
+    keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()], dtype=int)
+    key = (lambda n: n) if axisymmetric(geo) else (lambda n: n % geo.nfp)
+    blocks = []
+    for F in dict.fromkeys(key(h[keep, 1])):
+        if any(key(-b.harmonics[0, 1]) == F for b in blocks):
+            continue  # the conjugate of a block already taken
+        own, other = keep[key(h[keep, 1]) == F], keep[key(-h[keep, 1]) == F]
+        if key(-F) != F:  # family F and its conjugate -F: one complex pencil
+            rows, sign = np.concatenate([own, other]), np.concatenate([np.ones(len(own)), -np.ones(len(other))])
+            blocks.append(Block(h[rows] * sign[:, None], None, rows, sign))
+        elif symmetric(geo):
+            for p in (1, -1):
+                rows = own if p == 1 else own[(h[own] != 0).any(1)]
+                blocks.append(Block(h[rows], p, rows, np.ones(len(rows))))
+        else:
+            minus = own[(h[own] != 0).any(1)]
+            rows, sign = np.concatenate([own, minus]), np.concatenate([np.ones(len(own)), -np.ones(len(minus))])
+            blocks.append(Block(h[rows] * sign[:, None], None, rows, sign))
+    return blocks
+
+
+def block_matrices(assemble: Any, geo: Geometry, block: Block, cache: dict) -> Any:
+    """``assemble(harmonics, parity)`` for ``block``. The cosine and sine sectors of a family without ``(0, 0)`` are projected
+    from one assembly on both signs, kept in ``cache``, instead of assembling it twice."""
+    if block.parity not in (1, -1) or not (block.harmonics != 0).any(1).all():
+        return assemble(block.harmonics, block.parity)
+    key = block.rows.tobytes()
+    if key not in cache:
+        cache[key] = assemble(np.concatenate([block.harmonics, -block.harmonics]), "single")
+    return jax.tree_util.tree_map(parity_basis(geo, jnp.asarray(block.harmonics), block.parity)[1], cache[key])
+
+
+def on_rows(y: jax.Array, block: Block, size: int) -> jax.Array:
+    """Vectors ``y`` (last axis the block's unknowns) as complex coefficients ``x`` of the user's harmonics, the potential
+    being ``Re sum_j x_j exp(i(m_j theta - n_j zeta))``: a cosine-sector vector is ``x``, a sine-sector one ``-i x``, and a
+    ``(-m, -n)`` unknown adds its conjugate to row ``(m, n)``."""
+    y = y * (-1j if block.parity == -1 else 1)
+    x = jnp.zeros((*y.shape[:-1], size), complex)
+    if (block.sign > 0).all():  # one scatter: a sector or a single family
+        return x.at[..., block.rows].set(y)
+    for s in (1, -1):
+        cols = np.flatnonzero(block.sign == s)
+        x = x.at[..., block.rows[cols]].add(y[..., cols] if s == 1 else jnp.conj(y[..., cols]))
+    return x
 
 
 @partial(jax.jit, static_argnums=6)
@@ -208,17 +298,19 @@ def continuum(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     pressure: Any = None,
     gamma: float = 5.0 / 3.0,
-    parity: int | None = None,
+    parity: int | str | None = None,
 ) -> jax.Array:
-    """Continuum frequencies in Hz, sorted on each surface, shape ``(surfaces, H)`` (``2H`` with ``pressure``, see
-    :func:`continuum_matrices`)."""
-    K, M = continuum_matrices(geo, harmonics, density, ntheta, nzeta, pressure, gamma, parity)
-    w2 = generalized_eigh(K, M)[0]
-    return jnp.sqrt(jnp.maximum(w2, 0.0)) / (2.0 * jnp.pi)
+    """Continuum frequencies in Hz, sorted on each surface: every branch of the real potential on ``harmonics``
+    (:func:`spectral_blocks`; twice as many with ``pressure``, see :func:`continuum_matrices`). ``parity="single"`` is the
+    single-sign list as given (one branch per harmonic), ``1`` or ``-1`` one stellarator-symmetric sector."""
+    cache: dict = {}
+    assemble = lambda h, p: continuum_matrices(geo, h, density, ntheta, nzeta, pressure, gamma, p)  # noqa: E731
+    w2 = [generalized_eigh(*block_matrices(assemble, geo, b, cache))[0] for b in spectral_blocks(geo, harmonics, parity)]
+    return jnp.sqrt(jnp.maximum(jnp.sort(jnp.concatenate(w2, -1), -1), 0.0)) / (2.0 * jnp.pi)
 
 
 def gaps(frequencies_hz: Any) -> tuple[jax.Array, jax.Array]:
