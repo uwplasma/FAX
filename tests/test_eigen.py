@@ -110,7 +110,8 @@ def test_ae3d_ctok_parity():
     nodal = np.abs(v @ x) / np.linalg.norm(v, axis=1)[:, None] / np.linalg.norm(x, axis=0)[None]
     inertia = np.abs(v @ G @ x) / norm(G, v)[:, None] / norm(G, x.T)[None]
     best, best_g, k = nodal.argmax(1), inertia.argmax(1), np.arange(len(v))
-    measured = np.stack([khz[best], nodal[k, best], inertia[k, best], khz[best_g], inertia[k, best_g], norm(F, v) / norm(G, v) / 2e3 / np.pi], 1)
+    rayleigh = norm(F, v) / norm(G, v) / 2e3 / np.pi
+    measured = np.stack([khz[best], nodal[k, best], inertia[k, best], khz[best_g], inertia[k, best_g], rayleigh], 1)
     np.testing.assert_allclose(ref["khz"], list(CTOK_TABLE), atol=5e-4)
     table = np.array(list(CTOK_TABLE.values()))
     np.testing.assert_allclose(measured[:, [0, 3, 5]], table[:, [0, 3, 5]], atol=2e-3)  # kHz
