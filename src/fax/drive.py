@@ -107,6 +107,7 @@ def growth_rate(
     ntheta: int = 64,
     nzeta: int = 32,
     resolved: bool = False,
+    standing: bool = False,
 ) -> Any:
     """Fast-ion growth rate (1/s) of a mode ``phi`` (shape ``(len(geo.s), H)``, nodal values) at ``omega`` (rad/s).
 
@@ -116,6 +117,10 @@ def growth_rate(
     ``helical = 0`` is exact with ``nzeta = 1``. ``resolved=True`` returns the resonances
     ``(j, k)`` and the growth rate of each instead of their sum. ``boundary`` and ``guard`` are the passing-boundary and
     small-divisor regularizations described in the module docstring (defaults 0 and 1e-2).
+
+    ``standing=True`` reads ``phi`` as a cosine- or sine-sector mode of :func:`fax.eigenmodes`, the standing wave
+    ``Re sum_h phi_h exp(i(m_h theta - n_h zeta))``: the rate is that of its travelling components ``phi / 2`` on ``(m, n)``
+    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(
@@ -126,6 +131,10 @@ def growth_rate(
         ],
         dtype=float,
     )
+    if standing:  # each travelling component keeps its own sidebands; (0, 0) is its own conjugate, its coefficient Re(phi)
+        zero, phi = ~(hm != 0).any(1), jnp.asarray(phi)
+        phi = jnp.concatenate([(phi + jnp.where(zero, jnp.conj(phi), 0)) / 2, jnp.conj(phi[:, ~zero]) / 2], 1)
+        hm, pairs = np.concatenate([hm, -hm[~zero]]), np.unique(np.concatenate([pairs, -pairs]), axis=0)
     gamma = _growth_rate(omega, jnp.asarray(phi), geo, hm, ions, mass_density, pairs, boundary, guard, nodes, ntheta, nzeta)
     return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
 
