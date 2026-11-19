@@ -120,7 +120,11 @@ def growth_rate(
 
     ``standing=True`` reads ``phi`` as a cosine- or sine-sector mode of :func:`fax.eigenmodes`, the standing wave
     ``Re sum_h phi_h exp(i(m_h theta - n_h zeta))``: the rate is that of its travelling components ``phi / 2`` on ``(m, n)``
-    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference.
+    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference. It is the rate of the mode only when the
+    cosine and sine partners are further apart in frequency than the drive couples them; a nearer pair needs the 2 x 2 ledger
+    of the two modes, and in an axisymmetric field, where the partners are degenerate, the travelling rates (this function
+    without ``standing``, on ``(m, n)`` and on ``(-m, -n)``) are the physical ones. A mode of :func:`fax.eigenmodes` whose
+    block folds ``(-m, -n)`` rows goes through :func:`fax.eigen.travelling` first.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(
