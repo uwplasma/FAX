@@ -346,3 +346,45 @@ def test_zow_curve_is_bracketed_by_the_passing_only_drive():
     for t, zow in ZOW.items():
         gam = float(tae_gamma(float(t)))
         assert 0.5 < gam / (zow * 1e3) < 0.7 and gam / 4e5 < 0.05
+
+
+# --- the kit case of the radial derivative (plan step 1.5): Koenies torus, n = 1e17 (1 - 0.65 s), two Gaussians at s = 1/4 ---
+
+ATOMIC_D = 2.01410178  # atomic deuterium mass (u): the plan's numbers of step 1.5 were measured with it
+
+
+def kit_run(ns, nodes):
+    """``growth_rate`` on ``ns`` surfaces and ``nodes`` pitches of the case of plan step 1.5 (32 theta points, axisymmetric)."""
+    s = (jnp.arange(ns) + 0.5) / ns
+    geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
+    phi = jnp.stack([jnp.exp(-(((jnp.sqrt(s) - 0.5) / 0.0425) ** 2) / 2)] * 2, axis=1)
+    return s, lambda ions, **o: fax.growth_rate(4e5, phi, geo, HARM, ions, RHO, **{"nodes": nodes, "ntheta": 32, **AXI, **o})
+
+
+@pytest.mark.parametrize(("ns", "nodes", "ref"), [(32, 32, -3549.327652), (40, 16, -3598.463681)])
+def test_temperature_profile_is_differentiated_at_fixed_energy(ns, nodes, ref):
+    """``d_s F0 = f_M {n' + n [E/T - 3/2] T'/T}`` at fixed ``E`` (section 7: radial derivatives at fixed E and mu) for
+    ``T = 139 [1 + 0.8 (s - 1/4)]`` keV, ``n = 1e17 (1 - 0.65 s)``. Oracle: the same kernel with a distribution written here whose radial
+    term is the centred difference (h = 1e-5 in s) of ``n(s) f_M(E; T(s))`` at the fixed resonant energy, so the geometry and resonance
+    weights are shared and only ``d_s F0`` is tested. Plan step 1.5 gives -3549.33 (32 x 32) and -3598.46 s^-1 (40 x 16) at the atomic
+    deuterium mass; 1.2.0 returned +2297.92 (T aligned with the pitch axis), a shape error, or +1318.16 / +1336.02 (T' dropped).
+    Tolerance 1e-8: the truncation of the centred difference, h^2 |d^3F/ds^3| / |dF/ds| < 1e-8 for E/T < 10 and T'/T < 0.8."""
+    s, run = kit_run(ns, nodes)
+    dens, temp = (lambda x: 1e17 * (1 - 0.65 * x)), (lambda x: 139e3 * (1 + 0.8 * (x - 0.25)))
+    m, e, col, h = ATOMIC_D * AMU, 1.602176634e-19, s[:, None], 1e-5
+    maxwell = lambda x, v: dens(x) * (m / (2 * jnp.pi * temp(x) * e)) ** 1.5 * jnp.exp(-0.5 * m * v**2 / (temp(x) * e))  # noqa: E731
+
+    def oracle(v, ions):  # (dF/dE per unit density, F) with F = (d_s F0 at fixed E) / n', so that the kernel's n' F is d_s F0
+        return -maxwell(col, v) / (dens(col) * temp(col) * e), (maxwell(col + h, v) - maxwell(col - h, v)) / (2 * h * -0.65e17)
+
+    ions = fax.FastIons(dens(s), temp(s), mass_amu=ATOMIC_D)
+    with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
+        patch.setattr(fax.drive, "_distribution", oracle)
+        reference = float(run(ions))
+    assert reference == pytest.approx(ref, rel=1e-8)
+    for t in (temp(s), temp(s)[:, None]):  # one value per surface, as a vector or a column
+        assert float(run(replace(ions, temperature_ev=t))) == pytest.approx(reference, rel=1e-8)
+    flat = run(replace(ions, temperature_ev=jnp.full(ns, 139e3)))
+    assert flat == pytest.approx(run(replace(ions, temperature_ev=139e3)), rel=1e-12)  # a flat profile is the scalar
+    with pytest.raises(ValueError):
+        run(replace(ions, temperature_ev=temp(s)[:5]))

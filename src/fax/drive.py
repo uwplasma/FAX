@@ -40,7 +40,7 @@ Trapped and precessing particles are omitted (no bounce-averaged precession reso
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any
 
@@ -59,7 +59,7 @@ E = 1.602176634e-19
 class FastIons:
     """Isotropic fast ions: ``density`` (m^-3, scalar or profile on ``s``), energies in eV.
 
-    ``kind="maxwellian"`` uses ``temperature_ev``; ``kind="slowing_down"`` uses
+    ``kind="maxwellian"`` uses ``temperature_ev`` (scalar or profile on ``s``); ``kind="slowing_down"`` uses
     ``F ~ 1/(v^3 + v_c^3)`` below ``birth_ev`` with ``critical_ev``. The birth edge is smoothed
     (``erfc`` over ``birth_width`` = 2% of ``v_b``) and ``dF/dE`` includes the smoothed edge, so ``F`` is normalized
     to ``int F d^3v = 1`` with the smoothed edge and the edge drive is differentiable. Any other
@@ -168,7 +168,7 @@ def _growth_rate(
     chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2)))
     weight = 0.5 * (1.0 + xi**2) * h / hbar[..., None, None] * jnp.sum(kernel, 1)[:, None]  # (S, L, T, Z): C = sum_h C_h, phase is h-free
     omega_hat = 1.0 / (jnp.abs(D)[:, None] * hbar)  # omega_zeta / v
-    dens = jnp.asarray(ions.density) * jnp.ones_like(geo.s)
+    dens, temp = (jnp.broadcast_to(jnp.asarray(a, float).reshape(-1, 1), (len(geo.s), 1)) for a in (ions.density, ions.temperature_ev))
 
     def resonance(jk: jax.Array) -> jax.Array:
         j, k = jk[0], jk[1]
@@ -176,9 +176,9 @@ def _growth_rate(
         C = jnp.mean(weight * jnp.exp(-1j * (kap[..., None, None] * chi + j * g.theta - k * g.zeta)), axis=(-2, -1))  # (S, L)
         rate = jnp.maximum(jnp.abs(kap) * omega_hat, 1e-12)
         v = omega / rate
-        dfde, f = _distribution(v, ions)
-        star = j * _d_ds(dens[:, None], geo.s) / (omega * ions.charge * E * psi[:, None])
-        q = (dens[:, None] * dfde + star * f) * jnp.abs(C) ** 2
+        (dfde, f), (_, f_t) = jax.jvp(lambda t: _distribution(v, replace(ions, temperature_ev=t)), (temp,), (_d_ds(temp, geo.s),))
+        star = j * (_d_ds(dens, geo.s) * f + dens * f_t) / (omega * ions.charge * E * psi[:, None])  # d_s F0 at fixed E: n' f + n T' df/dT
+        q = (dens * dfde + star) * jnp.abs(C) ** 2
         return v**6 * q / (rate * omega_hat)
 
     power = jnp.abs(psi) * jnp.sum(jax.lax.map(jax.checkpoint(resonance), pairs) * wx * (1.0 - boundary) / (2 * bmax), axis=-1)  # (P, S)
