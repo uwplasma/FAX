@@ -16,7 +16,7 @@ gate is not met or not yet run. The numbers behind each row are in the detailed 
 
 | Area | Status | Notes |
 |---|---|---|
-| Continuum: uniform field, quadrature, STELLGAP CTOK, gap formulas | pass | CTOK mean 6.3e-3, p95 6.6e-3 |
+| Continuum: uniform field, quadrature, STELLGAP CTOK, gap formulas | pass | CTOK mean 4.2e-3, max 7.0e-3 |
 | Global operator: AE3D CTOK modes, real-space quadrature, manufactured solution, uniform-field continuum | pass | 6 modes within 1.4% |
 | AE3D CTOK TAE (337.9 kHz) | open | not reproduced; three $\iota'$ terms of AE3D v31's bending blocks differ from the energy, so the cause is unresolved |
 | Precise QA of Knyazev et al. 2026 | pass in part | continuum 3.0e-3; the archived global mode is within 2% in energy at 24-64 harmonics, with no single-mode match (overlap 0.18) |
@@ -33,7 +33,7 @@ gate is not met or not yet run. The numbers behind each row are in the detailed 
 |---|---|---|
 | Uniform-field continuum, $\omega = \lvert n - m\iota\rvert v_A/R$ | `test_uniform_field_continuum_is_k_parallel_v_alfven` | exact to 1e-9 |
 | Angle quadrature converged, $K$, $M$ Hermitian | `test_matrices_are_hermitian_and_resolution_converged` | 32² vs 64² to 1e-9 |
-| STELLGAP CTOK continuum | `test_stellgap_ctok_parity` | mean 6.3e-3, p95 6.6e-3 (gate 7e-3) |
+| STELLGAP CTOK continuum | `test_stellgap_ctok_parity` | mean 4.2e-3, max 7.0e-3 (gates 5e-3, 1e-2) |
 | Gap formulas | `test_gaps_and_gap_location` | TAE $\iota = 2n/(2m+1)$, MAE $\iota = (2n - N_{fp})/2m$ |
 | Uniform-field global spectrum is a continuum | `test_uniform_field_spectrum_is_a_continuum` | edges within $0.5/N$; mode width ∝ $1/N$ (N = 40, 160) |
 | AE3D CTOK global modes | `test_ae3d_ctok_parity` | 6 modes within 1.4%, overlap > 0.9 |
@@ -80,8 +80,14 @@ $|n - m\iota|\,v_A/R_0$ to 1e-9.
 
 **STELLGAP CTOK.** The public STELLGAP test problem (circular tokamak,
 `boozmn_ctok.nc` with $n_s = 101$, $n = 2$, $m = 0..12$, deuterium at
-10¹⁹ m⁻³), the STELLGAP output vendored in `tests/data`. Relative error of the
-13 branches per surface on 97 surfaces: mean 6.3e-3, 95th percentile 6.6e-3.
+10¹⁹ m⁻³). The packet's `boozmn` file lacks the outer half surface
+(`read_boozmn` warns), and the STELLGAP output of the packet was built from a
+metric that averages it with zeros: FAX differs from it by 5.2% at $s = 0.965$
+and 16.4% at $s = 0.975$. Against STELLGAP rerun with that surface restored
+from the packet's `wout` (`tests/data/PROVENANCE.md`), the relative error of the
+13 branches per surface on 97 surfaces is: mean 4.2e-3, 95th percentile
+6.7e-3, maximum 7.0e-3 at $s = 0.975$. STELLGAP takes 1.67e-27 kg per proton,
+the test 2 × 1.00727647 u for deuterium.
 STELLGAP labels its full-mesh surface $k$ as $k/(n_s - 1)$ instead of
 $(k - 1)/(n_s - 1)$ (`rho = nsurf/nsurf_max` in `stellgap_serial_ver5.f`), so
 the test shifts its labels by one cell; a scan of the offset has its minimum
