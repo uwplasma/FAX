@@ -163,7 +163,7 @@ def classify_modes(
     f_b, y_b = f_f[best], y_f[best]
     peak = np.argmax((np.abs(y_b) ** 2).sum(-1), axis=1)
     fine_geo = _nodes(geo, n)
-    branches = np.asarray(continuum(fine_geo, harmonics, density, options.get("ntheta", 32), options.get("nzeta", 32)))[peak]
+    branches = np.asarray(continuum(fine_geo, harmonics, density, options.get("ntheta"), options.get("nzeta")))[peak]
     lower = np.where(branches <= f_b[:, None], branches, 0.0).max(1)
     upper = np.where(branches >= f_b[:, None], branches, np.inf).min(1)
     margin = np.minimum(f_b - lower, upper - f_b) / np.maximum(f_b, 1e-30)

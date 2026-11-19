@@ -124,8 +124,8 @@ def continuum_matrices(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     pressure: Any = None,
     gamma: float = 5.0 / 3.0,
     parity: int | str | None = None,
@@ -134,7 +134,8 @@ def continuum_matrices(
 
     Raises ``ValueError`` (host inputs only) unless ``rho > 0``, ``G + iota I != 0`` and the grid
     resolves the requested couplings: ``ntheta > 2 max|dm|`` and ``nzeta > 2 max|dn|``, since
-    ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``.
+    ``<f exp(i(dm theta - dn zeta))>`` of an ``N``-point grid aliases ``dm`` with ``dm - N``. ``None`` picks the smallest
+    such grid, at least 32 (:func:`grid_size`).
 
     ``pressure`` (Pa, a scalar or one value per surface; default ``None`` = off) adds the acoustic coupling of
     :func:`sound_coupling` with adiabatic index ``gamma``: the matrices become ``2H x 2H``, the first ``H`` unknowns the
@@ -149,6 +150,7 @@ def continuum_matrices(
     check_modes(geo, h, density)
     h, project = parity_basis(geo, h, parity)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
     period = field_period(geo, nzeta)
@@ -189,6 +191,18 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | str | None) -> tuple
         return jnp.einsum("ia,...ij,jb->...ab", Q, A, Q).real
 
     return jnp.concatenate([h, -h]), project
+
+
+def grid_size(harmonics: Any, ntheta: int | None, nzeta: int | None, parity: Any = None) -> tuple[int, int]:
+    """``(ntheta, nzeta)``, each ``None`` replaced by ``max(32, 2 max|d| + 2)`` over the differences of the assembled harmonics:
+    the smallest even grid that does not alias them (a parity sector holds ``(m, n)`` and ``(-m, -n)``, so it needs twice the
+    span). Traced harmonics give 32."""
+    if isinstance(harmonics, jax.core.Tracer):
+        return ntheta or 32, nzeta or 32
+    h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
+    h = np.concatenate([h, -h]) if parity in (1, -1) else h
+    auto = lambda c: max(32, int(2 * np.ptp(h[:, c]) + 2) if len(h) else 32)  # noqa: E731
+    return (auto(0) if ntheta is None else ntheta), (auto(1) if nzeta is None else nzeta)
 
 
 class Block(NamedTuple):
@@ -289,8 +303,8 @@ def continuum(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     pressure: Any = None,
     gamma: float = 5.0 / 3.0,
     parity: int | str | None = None,
