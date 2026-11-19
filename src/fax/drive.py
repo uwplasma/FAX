@@ -35,7 +35,7 @@ inversion ``kappa / (kappa^2 + guard^2)``, the Gauss-Legendre ``nodes`` and the 
 distribution (``FastIons.birth_width``); gamma converges as each goes to zero (tests).
 
 Trapped and precessing particles are omitted (no bounce-averaged precession resonance).
-``n > 0`` with a peaked density drives (``iota psi' > 0``).
+A peaked density drives for ``n iota psi' < 0``: ``n > 0`` in :func:`fax.circular_torus`, where ``psi' < 0``.
 """
 
 from __future__ import annotations

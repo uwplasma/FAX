@@ -40,7 +40,7 @@ def test_fu_van_dam_maxwellian_scaling():
     resonance at ``v = v_par / xi``, ``int_0^1 2 xi dxi xi^-8 (1 + xi^2)^2 exp(-x^2 / xi^2) = 2 (1 + 2 x^2 + 2 x^4) exp(-x^2) / x^6``,
     psi' = B0 a^2 / 2, and ``W = int rho |grad phi|^2 / (2 B0^2) dV``. The prefactor ``gamma = pi^4 m_f^2 P / W`` (``P`` the radial
     integral) is that of the module docstring, fixed by the Koenies gate below, not derived here. Approximations: O(eps) toroidal
-    corrections and the v_A / 3 resonances (excluded, they are ~exp(-9 x^2))."""
+    corrections and the v_A / 3 resonances (other j, excluded; their Maxwellian factor is exp(-x^2 / 9) with x = v_A / v_th)."""
     R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, fax.FastIons().mass_amu * AMU, 1e6, 1.602176634e-19
     rho = float(RHO)
     geo = fax.circular_torus(s=S, major_radius=R0, minor_radius=a, B0=B0, iota=io, epsilon_B=eps)
@@ -105,6 +105,10 @@ def test_koenies_2018_tae_growth_rates():
 
 
 def test_drive_sign_and_flat_profile():
+    """The radial term ``j dF/ds / (omega Z e psi')`` with ``j ~ n / iota`` drives a peaked profile for ``n iota psi' < 0``: in
+    ``circular_torus`` ``psi' < 0`` (the left-handed Boozer angles of section 7 of the plan), so ``n > 0`` drives there."""
+    g = fax.geometry.surface_grid(ITPA, 16, 1)
+    assert (jnp.mean(g.sqrt_g * g.B**2, axis=(1, 2)) / (ITPA.G + ITPA.iota * ITPA.I) < 0).all()  # psi' as in the drive kernel
     flat = fax.FastIons(density=1e17, temperature_ev=200e3)
     for ions in (flat, fax.FastIons(density=1e17, kind="slowing_down")):
         g = [fax.growth_rate(4e5, TAE, ITPA, ((10 * n // 6, n), (11 * n // 6, n)), ions, RHO, **AXI) for n in (6, -6)]
