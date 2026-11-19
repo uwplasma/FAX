@@ -10,6 +10,7 @@ tabulated in ``docs/theory.md``, section 1.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -263,9 +264,16 @@ def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> SurfaceGri
     The covariant basis ``r_s, r_theta, r_zeta`` comes from the cylindrical
     embedding ``(R, phi = zeta + p, Z)``; ``g^ij`` is the inverse of
     ``g_ij = r_i . r_j``. Radial derivatives of the harmonics use second-order
-    finite differences in ``s``.
+    finite differences in ``s``. Compiled once per geometry shape and grid size.
     """
     check(jnp.all(jnp.diff(geo.s) > 0) & (geo.s.shape[0] >= 3), "geometry.s must be increasing with at least 3 surfaces")
+    grid = _surface_grid(geo, ntheta, nzeta)
+    check(jnp.all(grid.B > 0), "|B| must be positive on every surface")
+    return grid
+
+
+@partial(jax.jit, static_argnums=(1, 2))
+def _surface_grid(geo: Geometry, ntheta: int, nzeta: int) -> SurfaceGrid:
     # uniform periodic grid; zeta covers one full toroidal turn
     theta, zeta = jnp.meshgrid(2.0 * jnp.pi * jnp.arange(ntheta) / ntheta, 2.0 * jnp.pi * jnp.arange(nzeta) / nzeta, indexing="ij")
     ds = lambda a: _d_ds(a, geo.s)
@@ -278,7 +286,6 @@ def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> SurfaceGri
     Rs = synthesize(ds(geo.rmnc), ds(geo.rmns), geo.xm, geo.xn, theta, zeta)[0]
     Zs = synthesize(ds(geo.zmnc), ds(geo.zmns), geo.xm, geo.xn, theta, zeta)[0]
     ps = synthesize(ds(geo.pmnc), ds(geo.pmns), geo.xm, geo.xn, theta, zeta)[0]
-    check(jnp.all(B > 0), "|B| must be positive on every surface")
     phi = zeta + p
     cp, sp = jnp.cos(phi), jnp.sin(phi)
 
