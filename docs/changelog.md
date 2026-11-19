@@ -11,3 +11,9 @@ What changes for users of 1.2.0:
 - `mode_family` returns a NumPy array instead of a JAX array: harmonics are static host data.
 - `growth_rate(..., standing=True)` gives the drive of a cosine- or sine-sector mode, the standing wave of its two
   travelling components; without it the mode is read as a travelling wave, as in 1.2.0.
+
+What stops working:
+
+- An explicit angle grid that resolves the listed harmonics can be refused, since both signs double the span of $m$ and
+  $n$: `continuum(geo, mode_family(0, 6, 1), rho, 16, 4)` raises "ntheta=16 aliases the harmonics" (it needs
+  `ntheta > 24`, or `parity="single"`).
