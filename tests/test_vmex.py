@@ -45,11 +45,13 @@ def test_boundary_gradient_and_radial_refinement():
     gradient matches the re-solve FD to 3e-5: the remainder is vmex's released
     m = 1 gauge, which the adjoint holds fixed and each re-solve lets drift
     (closure to 3e-9 on iota, plan.md P3). The lowest eigenvalue is the
-    continuum minimum, so both it and its gradient converge at first order.
+    continuum minimum, so both it and its gradient converge at first order. That holds for the single-sign basis, whose
+    m = 1 branch has its minimum at the edge; on both signs the branch splits into a cosine branch (minimum at s = 0.03) and a
+    sine branch, and uniform nodes sample the near-axis minimum unevenly.
     """
     h = 1e-4
     harmonics = [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]
-    design = fax.prepare_design(INPUT, harmonics=harmonics, density=3.4e-8, parameters=("zs01",), ntheta=8, nzeta=8)
+    design = fax.prepare_design(INPUT, harmonics=harmonics, density=3.4e-8, parameters=("zs01",), ntheta=16, nzeta=8, parity="single")
     g0, gp, gm = (fax.design_geometry(jnp.array([x]), design) for x in (0.0, h, -h))
     dg = jax.tree_util.tree_map(lambda a, b: (a - b) / (2 * h), gp, gm)
     values, grads = [], []
