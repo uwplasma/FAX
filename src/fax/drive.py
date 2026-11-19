@@ -119,8 +119,11 @@ def growth_rate(
     and ``k = n + k' nfp``, ``|k'| <= helical``, are summed. An axisymmetric case with
     ``helical = 0`` is exact with ``nzeta = 1``. ``resolved=True`` returns the resonances
     ``(j, k)`` and the growth rate of each instead of their sum. ``boundary`` and ``guard`` are the passing-boundary and
-    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2); ``guard = 0`` is exact off
-    rational surfaces and raises ``ValueError`` when a nonconstant harmonic of the grid has ``iota k_theta + k_zeta = 0``.
+    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2). ``guard = 0`` is the small-divisor
+    limit, which near a rational surface can differ from a small ``guard`` by a large factor; it raises ``ValueError`` when a
+    nonconstant harmonic of the grid has ``iota k_theta + k_zeta = 0`` exactly. The check is a property of the grid, so it also
+    fires for an axisymmetric field sampled with ``nzeta > 1`` (use ``nzeta = 1``); under ``jit`` it is skipped and such a case
+    returns NaN.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(

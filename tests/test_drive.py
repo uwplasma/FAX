@@ -429,6 +429,8 @@ def test_species_mass_is_nuclear_and_charge_is_explicit():
         fax.FastIons(charge=0.0)
     with pytest.raises(ValueError, match="charge"):
         fax.ion_landau_damping(4e5, TAE, ITPA, HARM, 20e3, 2e19, charge=0, **AXI)
+    bulk = [fax.ion_landau_damping(4e5, TAE, ITPA, HARM, 20e3, 2e19, **AXI, **m) for m in ({}, {"mass_amu": 1.00727647})]
+    assert bulk[0] == bulk[1]  # the bulk ions default to protons
 
 
 def test_passing_boundary_maximum_is_refined_between_samples():
@@ -490,3 +492,40 @@ def test_growth_rate_uses_the_refined_maximum():
         patch.setattr(fax.drive, "_bmax", lambda b: jnp.max(b, axis=(1, 2)))
         sampled = float(run())
     assert abs(float(run()) / sampled - 1) > 1e-7
+
+
+def curved_error(n_s):
+    """Relative error of the kernel against the analytic-derivative oracle on ``n_s`` surfaces (see the test below)."""
+    s, run = kit_run(n_s, 8)
+    col, m, e = s[:, None], fax.FastIons().mass_amu * AMU, 1.602176634e-19
+    dens, ddens = 1e17 * jnp.exp(-3 * col), -3e17 * jnp.exp(-3 * col)
+    temp, dtemp = 139e3 * (1 + 0.8 * (col - 0.25) - 0.6 * (col - 0.25) ** 2), 139e3 * (0.8 - 1.2 * (col - 0.25))
+
+    def oracle(v, ions):  # F = (analytic d_s F0) / (the kernel's n'), so that the kernel's n' F is the analytic d_s F0
+        fm = (m / (2 * jnp.pi * temp * e)) ** 1.5 * jnp.exp(-0.5 * m * v**2 / (temp * e))
+        exact = fm * (ddens + dens * (0.5 * m * v**2 / (temp * e) - 1.5) * dtemp / temp)
+        return -fm / (temp * e), exact / fax.geometry._d_ds(dens, s)
+
+    ions = fax.FastIons(dens[:, 0], temp[:, 0])
+    with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
+        patch.setattr(fax.drive, "_distribution", oracle)
+        reference = float(run(ions))
+    return abs(float(run(ions)) / reference - 1)
+
+
+def test_curved_profiles_converge_to_the_analytic_fixed_energy_derivative():
+    """Curved ``n = 1e17 exp(-3 s)`` and ``T = 139 [1 + 0.8 (s - 1/4) - 0.6 (s - 1/4)^2]`` keV: the oracle is the kernel with the analytic
+    ``d_s F0 = f_M [n' + n (E/T - 3/2) T'/T]``. The kernel takes ``n'`` and ``T'`` by the three-point derivative on the surfaces (second
+    order, ``fax.geometry._d_ds``), so the error falls by 4 from 32 to 64 surfaces (accepted 3 to 5); measured 3.7e-3 on 32."""
+    errs = [curved_error(n_s) for n_s in (32, 64)]
+    assert 3 < errs[0] / errs[1] < 5
+
+
+def test_zero_guard_mask_keeps_the_derivative_at_an_exact_rational_zero():
+    """At ``iota = 1/2`` the harmonic (2, -1) of the grid has ``kappa = 0`` exactly; with ``guard > 0`` its inverse ``kappa / (kappa^2 +
+    guard^2)`` is 0 with slope ``1 / guard^2`` in iota. Only the constant component is masked, so ``jax.grad`` in a uniform iota shift
+    equals the central difference (h = 1e-8, far below guard = 1e-3; tolerance 1e-5). Masking every ``kappa == 0`` would set that
+    slope to ``1 / (guard^2 + 1)``."""
+    f = lambda t: drive(helical_torus(0.5 + t + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=1e-3)  # noqa: E731
+    h = 1e-8
+    assert float(jax.grad(f)(0.0)) == pytest.approx(float((f(h) - f(-h)) / (2 * h)), rel=1e-5)
