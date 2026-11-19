@@ -246,7 +246,7 @@ def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
     """The facts that choose the real path, the coupled families and the one-period average are static fields set by each
     constructor, so eager and compiled calls agree; ``dataclasses.replace`` under ``jax.jit`` cannot inherit facts its new
     arrays may break. The ``nfp = 1`` field with an ``n = 1`` harmonic of ``R`` and ``Z`` is three-dimensional: ``n = 0``
-    and ``n = 1`` couple."""
+    and ``n = 1`` couple, so the default basis is one self-conjugate family: 6 cosine and 6 sine branches per surface."""
     from fax.geometry import field_period
 
     s, h, rho = jnp.linspace(0.1, 0.9, 9), fax.mode_family((0, 1), 3, 1), 3.4e-8
@@ -256,8 +256,10 @@ def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
     assert facts(torus) == (True, True, True) and facts(helical) == (False, True, True)
     assert facts(replace(helical, nfp=2)) == (False, True, False) and not replace(torus, bmns=torus.bmnc).stellsym
     eager, compiled = fax.continuum(helical, h, rho, 16, 8), jax.jit(lambda g: fax.continuum(g, h, rho, 16, 8))(helical)
-    assert eager.shape == compiled.shape == (9, 6)
+    assert eager.shape == compiled.shape == (9, 12)
     np.testing.assert_allclose(compiled, eager, rtol=1e-12)
+    modes = lambda g: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8).omega2  # noqa: E731
+    np.testing.assert_allclose(jax.jit(modes)(helical), modes(helical), rtol=1e-10)
     added = lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8)  # noqa: E731
     np.testing.assert_allclose(jax.jit(added)(torus), added(torus), rtol=1e-12)  # a sine harmonic added under jit
     zeta_points = lambda f, g: jax.jit(lambda g: fax.surface_grid(f(g), 16, 8, field_period(f(g), 8)).B)(g).shape[-1]  # noqa: E731
@@ -362,6 +364,15 @@ def test_default_basis_is_both_signs_split_into_independent_blocks(asymmetric_to
     np.testing.assert_allclose(jax.grad(f)(rho), -f(rho) / (2 * rho), rtol=1e-8)
     loss = lambda e: fax.frequency_hz(fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=e), h, rho, 2, 3)  # noqa: E731
     assert jax.grad(loss)(0.1) == pytest.approx((loss(0.1 + 1e-5) - loss(0.1 - 1e-5)) / 2e-5, rel=1e-5)
+
+
+def test_count_above_the_basis_size_raises():
+    """A targeted solve asks for at most as many modes as the basis has unknowns (surfaces x harmonics, summed over the
+    blocks), as for one pencil: 9 x 4 in each sector of the n = 0 family, 9 x 4 for the single n = 1 family."""
+    geo, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1), 3.4e-8
+    for h, size in ((fax.mode_family(0, 4, 1), 72), (fax.mode_family(1, 3), 36)):
+        with pytest.raises(ValueError, match="count"):
+            fax.eigenmodes(geo, h, rho, target_hz=2e5, count=size + 1)
 
 
 def test_booz_xform_output_dictionary_matches_the_file_reader():
