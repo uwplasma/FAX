@@ -413,6 +413,19 @@ def solve(
     return lam, jnp.concatenate([p[1] for p in parts])[order] if vectors else None, status
 
 
+def travelling(geo: Geometry, harmonics: Any, structures: Any, parity: Any = None) -> tuple[np.ndarray, jax.Array]:
+    """``(harmonics, phi)`` of a mode for :func:`fax.growth_rate`, which reads ``phi_h exp(i(m theta - n zeta - omega t))``.
+    ``structures`` fold a ``(-m, -n)`` unknown of a block that holds the families ``F`` and ``-F`` onto the listed ``(m, n)``
+    row as its conjugate (:func:`fax.continuum.on_rows`): the same potential at ``t = 0``, but running backwards. Such rows
+    go back to ``(-m, -n)`` with the conjugate coefficient."""
+    h = np.asarray(harmonics, dtype=float)
+    folded = np.zeros(len(h), bool)
+    for b in spectral_blocks(geo, h, parity):
+        folded[b.rows[b.sign < 0]] = True
+        folded[b.rows[b.sign > 0]] = False  # a row on both signs (a self-conjugate complex pencil) is not a travelling wave
+    return np.where(folded[:, None], -h, h), jnp.where(folded, jnp.conj(structures), structures)
+
+
 def eigenmodes(
     geo: Geometry,
     harmonics: Any,

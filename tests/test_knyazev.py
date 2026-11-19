@@ -41,6 +41,15 @@ def test_stellgap_continuum_parity(fx):
     assert (edge[s > 0.25].max(0) < [1.5e-2, 4e-2]).all()  # branches below and above the archived global mode: 1.0% and 3.0%
 
 
+def test_regression_stellgap_continuum_on_all_surfaces(fx):
+    """Regression, labelled as such (plan 8.3 and 10.3): on all 98 STELLGAP surfaces of Knyazev et al. (2026) the relative L2
+    error of the cosine sector, STELLGAP's own basis, is 1.617e-3 (the 0.160% of the plan) against 2.975e-3 (0.300%) for
+    the single-sign list; measured 2026-11-19, to 0.2%."""
+    cos, single = (kq.continuum_error(fx, 112, 72, parity=p)[0] for p in (1, "single"))
+    assert cos.size == single.size == 98
+    assert cos.mean() == pytest.approx(1.617e-3, rel=2e-3) and single.mean() == pytest.approx(2.975e-3, rel=2e-3)
+
+
 def test_ae3d_gap_band_in_the_sine_basis(fx):
     """FAX in AE3D's sine basis at 24 harmonics: positive operator, archived global mode, band count and containment."""
     r = kq.run(fx, 49, 24, 40, 24)

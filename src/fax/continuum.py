@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import solve_triangular
 
-from .geometry import Geometry, axisymmetric, check, field_period, surface_grid, symmetric
+from .geometry import Geometry, _fact, check, field_period, surface_grid, symmetric
 
 MU0 = 4.0e-7 * jnp.pi
 AMU = 1.66053906660e-27
@@ -227,7 +227,8 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
     is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
     earlier are dropped. A traced geometry uses the static facts of :class:`fax.Geometry`; an unknown one counts as
-    asymmetric and not axisymmetric.
+    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether different
+    ``|n|`` couple, so such a list is refused rather than solved with a shape that differs from the eager one.
     ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
     """
     h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
@@ -235,7 +236,10 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     if parity is not None or not len(h):
         return [Block(h, None if parity == "single" else parity, every, np.ones(len(h)))]
     keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()], dtype=int)
-    key = (lambda n: n) if axisymmetric(geo) else (lambda n: n % geo.nfp)
+    axisym = _fact(geo, "axisymmetric")
+    if axisym is None and geo.nfp == 1 and len(np.unique(np.abs(h[keep, 1]))) > 1:  # n and n' couple only without axisymmetry
+        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host")
+    key = (lambda n: n) if axisym else (lambda n: n % geo.nfp)
     blocks = []
     for F in dict.fromkeys(key(h[keep, 1])):
         if any(key(-b.harmonics[0, 1]) == F for b in blocks):

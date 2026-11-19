@@ -260,10 +260,12 @@ def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
     np.testing.assert_allclose(compiled, eager, rtol=1e-12)
     modes = lambda g: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8).omega2  # noqa: E731
     np.testing.assert_allclose(jax.jit(modes)(helical), modes(helical), rtol=1e-10)
-    added = lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8, parity="single")  # noqa: E731
-    np.testing.assert_allclose(jax.jit(added)(torus), added(torus), rtol=1e-12)  # a sine harmonic added under jit
-    # the default basis of that traced replace couples every family (axisymmetry unknown): n = 1 gains its conjugate copy
-    assert jax.jit(lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8))(torus).shape == (9, 12)
+    added = lambda g, **p: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8, **p)  # noqa: E731
+    assert added(torus).shape == (9, 9)  # eager: n = 0 on both signs (6) and n = 1 alone (3)
+    with pytest.raises(ValueError, match="axisymmetry"):  # traced replace: unknown axisymmetry would decide the blocks
+        jax.jit(added)(torus)
+    single = lambda g: added(g, parity="single")  # noqa: E731
+    np.testing.assert_allclose(jax.jit(single)(torus), single(torus), rtol=1e-12)  # no stale stellsym under jit
     zeta_points = lambda f, g: jax.jit(lambda g: fax.surface_grid(f(g), 16, 8, field_period(f(g), 8)).B)(g).shape[-1]  # noqa: E731
     two = lambda g: replace(g, nfp=2)  # noqa: E731
     assert zeta_points(lambda g: g, two(torus)) == 4 and zeta_points(two, torus) == zeta_points(two, helical) == 8  # unknown: full turn
@@ -452,6 +454,20 @@ def test_default_angle_grid_is_the_smallest_unaliased_one():
         fax.continuum(geo, h, rho, 32)
     modes = fax.eigenmodes(geo, h, rho)
     np.testing.assert_allclose(modes.omega2, fax.eigenmodes(geo, h, rho, ntheta=82, nzeta=32).omega2, rtol=1e-10)
+
+
+def test_continuum_vanishes_at_the_rational_surface_and_families_match_a_full_torus_solve():
+    """Spong et al. (2003): every row of the continuum stiffness carries ``m iota - n``, so at ``m iota = n`` (here (5, 2) at
+    iota = 0.4) the spectrum has an exact zero on every surface, and none at iota = 0.41. The families ``n mod nfp`` do not
+    couple: their blocks give the spectrum of one full-torus solve of every listed harmonic on both signs (33 toroidal
+    points, not a multiple of nfp, so the whole turn), to 1e-12."""
+    rho, h = 3.4e-8, fax.mode_family((0, 2), 6, 1)
+    f = np.asarray(fax.continuum(stellarator(2), h, rho))
+    off = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.41, epsilon_B=0.1, nfp=2)
+    assert (f.min(1) < 1e-6 * f.max()).all() and (np.asarray(fax.continuum(off, h, rho)).min(1) > 1e-2 * f.max()).all()
+    h = fax.mode_family((0, 1, 2, 3), 3, 1)
+    full = fax.continuum(stellarator(2), np.unique(np.concatenate([h, -h]), axis=0), rho, 32, 33, parity="single")
+    np.testing.assert_allclose(fax.continuum(stellarator(2), h, rho, 32, 32), full, rtol=1e-12)
 
 
 def test_booz_xform_output_dictionary_matches_the_file_reader():
