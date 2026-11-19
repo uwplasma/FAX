@@ -63,14 +63,15 @@ class FastIons:
     ``F ~ 1/(v^3 + v_c^3)`` below ``birth_ev`` with ``critical_ev``. The birth edge is smoothed
     (``erfc`` over ``birth_width`` = 2% of ``v_b``) and ``dF/dE`` includes the smoothed edge, so ``F`` is normalized
     to ``int F d^3v = 1`` with the smoothed edge and the edge drive is differentiable. Any other
-    ``kind`` raises ``ValueError``.
+    ``kind`` raises ``ValueError``. ``mass_amu`` is the nuclear mass (default the deuteron, CODATA 2018) and ``charge`` the
+    charge number, which must not be zero.
     """
 
     density: Any = 1.0e17
     temperature_ev: Any = 100.0e3
     birth_ev: Any = 3.5e6
     critical_ev: Any = 0.5e6
-    mass_amu: Any = 2.01410178
+    mass_amu: Any = 2.013553212
     charge: Any = 1.0
     birth_width: Any = 0.02
     kind: str = "maxwellian"
@@ -82,6 +83,9 @@ class FastIons:
             v = getattr(self, name)  # pytree rebuilds may hold None or axis specs: only numbers are checked
             ok = not isinstance(v, (int, float, np.ndarray, jax.Array)) or (jnp.isfinite(v) & (v > 0))
             check(ok, f"FastIons.{name} must be positive and finite")
+        check(
+            not isinstance(self.charge, (int, float, np.ndarray, jax.Array)) or jnp.all(self.charge != 0), "FastIons.charge must not be 0"
+        )
 
 
 jax.tree_util.register_dataclass(
@@ -194,12 +198,22 @@ def _growth_rate(
 
 
 def ion_landau_damping(
-    omega: Any, phi: Any, geo: Geometry, harmonics: Any, temperature_ev: Any, density: Any, *, mass_amu: Any = 1.00727647, **options: Any
+    omega: Any,
+    phi: Any,
+    geo: Geometry,
+    harmonics: Any,
+    temperature_ev: Any,
+    density: Any,
+    *,
+    mass_amu: Any = 1.00727647,
+    charge: Any = 1.0,
+    **options: Any,
 ) -> jax.Array:
     """Bulk-ion Landau damping rate (1/s, positive damps): the same power transfer for a flat
-    thermal Maxwellian (Fu & Van Dam 1989; Betti & Freidberg 1992). Electron Landau damping
-    needs ``E_par`` and is not included. ``options`` go to :func:`growth_rate`."""
-    bulk = FastIons(density=density, temperature_ev=temperature_ev, mass_amu=mass_amu)
+    thermal Maxwellian (Fu & Van Dam 1989; Betti & Freidberg 1992) of ions of nuclear mass ``mass_amu`` (default the proton)
+    and charge number ``charge``. Electron Landau damping needs ``E_par`` and is not included. ``options`` go to
+    :func:`growth_rate`."""
+    bulk = FastIons(density=density, temperature_ev=temperature_ev, mass_amu=mass_amu, charge=charge)
     return -growth_rate(omega, phi, geo, harmonics, bulk, density * mass_amu * AMU, **options)
 
 

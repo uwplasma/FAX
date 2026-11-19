@@ -41,7 +41,7 @@ def test_fu_van_dam_maxwellian_scaling():
     psi' = B0 a^2 / 2, and ``W = int rho |grad phi|^2 / (2 B0^2) dV``. The prefactor ``gamma = pi^4 m_f^2 P / W`` (``P`` the radial
     integral) is that of the module docstring, fixed by the Koenies gate below, not derived here. Approximations: O(eps) toroidal
     corrections and the v_A / 3 resonances (excluded, they are ~exp(-9 x^2))."""
-    R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, 2.01410178 * AMU, 1e6, 1.602176634e-19
+    R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, fax.FastIons().mass_amu * AMU, 1e6, 1.602176634e-19
     rho = float(RHO)
     geo = fax.circular_torus(s=S, major_radius=R0, minor_radius=a, B0=B0, iota=io, epsilon_B=eps)
     r, r0, w = np.sqrt(np.asarray(S)), 0.5, 0.1
@@ -405,3 +405,19 @@ def test_zero_guard_sets_the_mean_of_the_orbit_angle_to_zero():
     with pytest.raises(ValueError, match="rational"):
         drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=0.0)
     assert jnp.isfinite(drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=1e-3))
+
+
+def test_species_mass_is_nuclear_and_charge_is_explicit():
+    """Section 7 of the plan: nuclear masses, charge numbers explicit. The default species is the deuteron, 2.013553212 u (CODATA 2018),
+    not the deuterium atom (2.01410178 u, which adds the electron); the bulk ions of ``ion_landau_damping`` are protons, 1.00727647 u.
+    The drift work ``Ze v_d . dE`` does not depend on ``Z`` and the radial term of ``Q F = dF/dE + j dF/ds / (omega Z e psi')`` goes as
+    ``1/Z``, so ``gamma(Z = 2) = (gamma(1) + gamma(-1)) / 2 + (gamma(1) - gamma(-1)) / 4`` (algebraic, to rounding). Zero charge
+    divides by zero and is refused."""
+    assert fax.FastIons().mass_amu == pytest.approx(2.013553212, rel=1e-9)
+    s, run = kit_run(24, 8)
+    g1, gm, g2 = (float(run(fax.FastIons(1e17 * (1 - 0.65 * s), 139e3, charge=z))) for z in (1.0, -1.0, 2.0))
+    assert g2 == pytest.approx((g1 + gm) / 2 + (g1 - gm) / 4, rel=1e-12) and abs(g1 - gm) > 0.1 * abs(g1)
+    with pytest.raises(ValueError, match="charge"):
+        fax.FastIons(charge=0.0)
+    with pytest.raises(ValueError, match="charge"):
+        fax.ion_landau_damping(4e5, TAE, ITPA, HARM, 20e3, 2e19, charge=0, **AXI)
