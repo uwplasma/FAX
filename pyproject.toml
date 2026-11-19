@@ -7,7 +7,7 @@ name = "alfvex"
 version = "1.2.0"
 description = "Differentiable JAX code for Alfvén eigenmodes and fast-ion physics in stellarators."
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Rogerio Jorge", email = "rogerio.jorge@wisc.edu" }]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -16,7 +16,6 @@ dependencies = [
   "solvax>=0.36.0",
   "numpy",
   "netCDF4",
-  "tomli; python_version < '3.11'",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -24,10 +23,10 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Physics",
 ]
 keywords = ["alfven eigenmodes", "fast ions", "jax", "stellarator", "vmec"]
@@ -43,7 +42,7 @@ fax = "fax.io:main"
 
 [project.optional-dependencies]
 plot = ["matplotlib"]
-vmex = ["vmex>=0.13.0; python_version >= '3.11'"]
+vmex = ["vmex>=0.13.0"]
 test = ["pytest", "coverage", "matplotlib"]
 docs = ["sphinx", "furo", "myst-parser"]
 dev = ["alfvex[test,docs]", "ruff", "build", "twine"]

@@ -47,7 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         # Pull requests run a short smoke on each version (the coverage job runs the full suite); main, nightly and manual runs test every version in full.
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10","3.12","3.13"]' || '["3.10","3.11","3.12","3.13"]') }}
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -64,19 +64,10 @@ jobs:
           restore-keys: jax-${{ runner.os }}-py${{ matrix.python-version }}-
       - run: .venv/bin/python -m pytest -q -n 3 ${{ github.event_name == 'pull_request' && '-x tests/test_api.py tests/test_gpu.py' || '' }}
 
-  # Keeps the required "Python 3.11" check reporting on pull requests, which skip that version.
-  python-311-main-only:
-    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    name: Python 3.11
-    runs-on: [self-hosted, uwplasma-cpu]
-    timeout-minutes: 5
-    steps:
-      - run: echo "Python 3.11 is tested on main and nightly"
-
   oldest-jax:
     # Skipped on pull requests (a skipped required check passes); main and nightly run it.
     if: github.event_name != 'pull_request'
-    name: Python 3.10, JAX 0.4.38
+    name: Python 3.11, JAX 0.4.38
     runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 60
     env:
@@ -89,7 +80,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           enable-cache: false
       - run: uv venv && uv pip install -e ".[test]" pytest-xdist "jax==0.4.38" "jaxlib==0.4.38" "solvax==0.36.0" "numpy<2"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -101,16 +92,24 @@ jobs:
 
   wheel:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    name: Installed wheel
+    name: Installed wheel, Python ${{ matrix.python }}
     runs-on: [self-hosted, uwplasma-cpu]
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include: # the floor stack and the latest stack
+          - python: "3.11"
+            pins: "jax==0.4.38 jaxlib==0.4.38 solvax==0.36.0 'numpy<2'"
+          - python: "3.14"
+            pins: ""
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python }}
           enable-cache: false
       - name: Build, check and inspect the wheel
         run: |
@@ -123,7 +122,7 @@ jobs:
       - name: Run an analytic case from the installed wheel, outside the checkout
         run: |
           uv venv "$RUNNER_TEMP/venv"
-          uv pip install --python "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP"/dist/*.whl
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP"/dist/*.whl ${{ matrix.pins }}
           cp tests/install_smoke.py examples/quickstart.py "$RUNNER_TEMP"
           cd "$RUNNER_TEMP" && venv/bin/python -I install_smoke.py && venv/bin/python -I quickstart.py && venv/bin/fax --help
 
