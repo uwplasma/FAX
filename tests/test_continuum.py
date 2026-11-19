@@ -377,6 +377,59 @@ def test_count_above_the_basis_size_raises():
             fax.eigenmodes(geo, h, rho, target_hz=2e5, count=size + 1)
 
 
+def stellarator(nfp, epsilon_B=0.1, sine=0.0):
+    """Circular torus whose ``m = 2`` harmonic of ``|B|``, ``R`` and ``Z`` turns into ``(2, nfp)``: a stellarator-symmetric
+    three-dimensional field, or an asymmetric one with a ``sin(theta)`` harmonic of ``|B|`` of amplitude ``sine`` (T)."""
+    g = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=epsilon_B, nfp=nfp)
+    return replace(g, xn=g.xn.at[2].set(nfp), bmnc=g.bmnc.at[:, 2].set(-0.2 * g.s), bmns=g.bmns.at[:, 1].set(sine))
+
+
+def test_sectors_give_the_full_basis_and_an_asymmetric_field_takes_the_complex_path():
+    """N = 1 at nfp = 2 is self-conjugate: on a symmetric field the cosine and sine sectors together are the spectrum of the
+    two-sign list (theory, section 2) to 1e-10. A sine harmonic of |B| (1e-2 T) breaks the symmetry: the default is then one
+    complex pencil on both signs, again the two-sign spectrum, and it differs from the sector solve of the symmetric field."""
+    h, rho = fax.mode_family((1, 3), 3), 3.4e-8
+    both, sym, asym = np.concatenate([h, -h]), stellarator(2), stellarator(2, sine=1e-2)
+    full = fax.continuum(sym, both, rho, 16, 16, parity="single")
+    sectors = np.sort(np.concatenate([fax.continuum(sym, h, rho, 16, 16, parity=p) for p in (1, -1)], 1), 1)
+    np.testing.assert_allclose(sectors, full, rtol=1e-10)
+    np.testing.assert_allclose(fax.continuum(sym, h, rho, 16, 16), full, rtol=1e-10)
+    assert [(b.parity, len(b.rows)) for b in spectral_blocks(asym, h)] == [(None, 16)]
+    complex_path = fax.continuum(asym, h, rho, 16, 16)
+    np.testing.assert_allclose(complex_path, fax.continuum(asym, both, rho, 16, 16, parity="single"), rtol=1e-10)
+    assert np.abs(complex_path / full - 1).max() > 1e-5
+    with pytest.raises(ValueError, match="stellarator-symmetric"):
+        fax.continuum(asym, h, rho, 16, 16, parity=1)
+
+
+def test_completion_leaves_a_family_that_is_not_self_conjugate_unchanged():
+    """N = 1 at nfp = 5 has 2 N != 0 (mod 5): (m, n) never couples to (-m', -n'), so the default basis is the list as given
+    and the two-sign list only doubles every branch (theory, section 2), to 1e-12. The 40-point grid is one period of
+    8 points; a 32-point full turn aliases the products with the (2, 5) harmonic at 2e-7."""
+    h, rho = fax.mode_family((1, 6, -4), 3), 3.4e-8
+    geo = stellarator(5)
+    single = fax.continuum(geo, h, rho, 16, 40, parity="single")
+    np.testing.assert_allclose(fax.continuum(geo, h, rho, 16, 40), single, rtol=1e-12)
+    doubled = fax.continuum(geo, np.concatenate([h, -h]), rho, 16, 40, parity="single")
+    for copy in (doubled[:, ::2], doubled[:, 1::2]):
+        np.testing.assert_allclose(copy, single, rtol=1e-12)
+
+
+@pytest.mark.parametrize("sine, parity", [(0.0, 1), (0.0, -1), (0.0, None), (1e-3, None)])
+def test_dense_and_targeted_values_and_reverse_derivatives_agree(sine, parity):
+    """The real path in each sector, both sectors merged, and the complex two-sign pencil of an asymmetric field: the
+    targeted solve of the most isolated interior eigenvalue equals the dense one, and so does its reverse-mode derivative in
+    epsilon_B (both exact first derivatives of one simple eigenvalue)."""
+    h, rho, grid = fax.mode_family((1, 3), 3), 3.4e-8, dict(ntheta=16, nzeta=16, parity=parity)
+    w2 = np.asarray(fax.eigenmodes(stellarator(2, sine=sine), h, rho, **grid).omega2)
+    k = 1 + int(np.argmax(np.minimum(np.diff(w2)[:-1], np.diff(w2)[1:])[: len(w2) // 2]))
+    target = float(np.sqrt(w2[k] + 0.1 * (w2[k + 1] - w2[k])) / (2 * np.pi))  # off the eigenvalue: the shift stays regular
+    dense_f = lambda e: fax.frequency_hz(stellarator(2, e, sine), h, rho, k, k + 1, **grid)  # noqa: E731
+    near_f = lambda e: fax.frequency_hz(stellarator(2, e, sine), h, rho, 0, 1, target_hz=target, count=1, **grid)  # noqa: E731
+    assert near_f(0.1) == pytest.approx(dense_f(0.1), rel=1e-10)
+    assert jax.grad(near_f)(0.1) == pytest.approx(jax.grad(dense_f)(0.1), rel=1e-7)
+
+
 def test_booz_xform_output_dictionary_matches_the_file_reader():
     """The traceable converter reads ``gmn_b`` when ``gmnc_b`` is absent and prefers ``gmnc_b`` when both are given."""
     from netCDF4 import Dataset
