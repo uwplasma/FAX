@@ -380,8 +380,10 @@ def test_folded_rows_are_driven_as_the_travelling_wave_of_their_block():
     folded = np.flatnonzero(
         (np.abs(np.asarray(ev.structures)[..., 2:]) ** 2).sum((1, 2)) > 0.9 * (np.abs(np.asarray(ev.structures)) ** 2).sum((1, 2))
     )
+    assert len(folded) >= 3
     for k in folded[:: max(1, len(folded) // 3)][:3]:
         w = float(np.sqrt(ev.omega2[k]))
         want = drive(tok, block, phi=ref.structures[k], omega=w, **opt)
-        assert drive(tok, *travelling(tok, h, ev.structures[k]), omega=w, **opt) == pytest.approx(want, rel=1e-8)
+        hh, phi = travelling(tok, h, ev.structures[k])
+        assert drive(tok, hh, phi=phi, omega=w, **opt) == pytest.approx(want, rel=1e-8)
         assert abs(drive(tok, h, phi=ev.structures[k], omega=w, **opt) / want - 1) > 0.1  # the folded reading
