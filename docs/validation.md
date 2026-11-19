@@ -1,7 +1,7 @@
 # Validation
 
 Every physics claim in FAX is a test in `tests/`, tied to an analytic result
-or a published number. CI runs them on Python 3.10–3.13 in float64. The numbers
+or a published number. CI runs them on Python 3.11–3.14 in float64 ({ref}`supported-stacks`). The numbers
 below are the test thresholds and the measured values of the tests named here.
 
 **Scope.** FAX is a reduced model: restricted finite-$\beta$ terms (experimental), sound coupling in the continuum only (no BAE eigenmodes), no continuum or
@@ -666,6 +666,19 @@ tokamak gates use {func}`fax.circular_torus`, axisymmetric (`helical = 0`,
   dominate some modes: for the 43.9 kHz gap mode of the $n = 1$ family
   driven by slowing-down alphas, 99% of $\gamma$ comes from $k = -7$, a
   toroidal number absent from the mode.
+
+(supported-stacks)=
+## Supported stacks
+
+FAX needs Python 3.11 or newer and JAX 0.4.38 or newer. The pull-request matrix runs Python 3.11, 3.12, 3.13 and 3.14. The
+installed-wheel job runs on the oldest stack (Python 3.11, JAX 0.4.38, SOLVAX 0.36.0) and on the latest (Python 3.14, newest
+releases); the weekly minimum job runs the whole suite on the oldest stack.
+
+Python 3.10 is not supported. On macOS arm64, Python 3.10.20 with JAX 0.6.2 and SOLVAX 0.36.2 (the newest JAX that installs on
+Python 3.10) stops with signal 11, a segmentation fault, while XLA compiles the gradient with respect to the mass density
+through the matrix assembly that pull request 66 placed under `jax.jit`. The same commit passed on Python 3.10 on Linux and with
+JAX 0.4.38 on macOS; release 1.2.0 had no `jit` around the assembly and did not crash. CI runs 44457207629 and 44526862110 on
+commit `0c84e00` record it.
 
 ## Not done
 

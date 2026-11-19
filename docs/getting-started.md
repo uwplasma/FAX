@@ -11,7 +11,7 @@
 
 ## Install
 
-FAX needs Python 3.10 or newer, JAX 0.4.38 or newer and `solvax>=0.36.0`; the `vmex` extra needs Python 3.11 or newer and `vmex>=0.13.0`. FAX is on PyPI as
+FAX needs Python 3.11 or newer, JAX 0.4.38 or newer and `solvax>=0.36.0`; the `vmex` extra needs `vmex>=0.13.0`. FAX is on PyPI as
 `alfvex` (`pip install alfvex`, extras as below) and is imported as `fax`; it will soon be renamed ALFVEX everywhere. Do not
 `pip install fax`, an unrelated package. From a clone, the commands below install the development version.
 
