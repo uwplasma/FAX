@@ -99,6 +99,7 @@ def test_koenies_2018_tae_growth_rates():
     large-aspect-ratio model gave 4.4, 16.6, 33.1, 65 x10^3/s and the Boozer form with n/iota in the
     gradient term 4.33, 16.52, 32.94, 64.85."""
     gam = np.array([tae_gamma(t) for t in (100.0, 200.0, 300.0, 400.0)])
+    # regression values of this code at the atomic deuterium mass; the nuclear default moves them by 0.4e-4 to 2.5e-4
     np.testing.assert_allclose(gam, [4.290e3, 16.39e3, 32.72e3, 64.48e3], rtol=1e-3)
     np.testing.assert_allclose(gam, [4.4e3, 16.6e3, 33.1e3, 65e3], rtol=0.04)  # O(1/n) labelling change of the gradient term, ~1.5%
     assert 0.8 * 40e3 < gam[2] < 1.2 * 40e3
@@ -365,14 +366,15 @@ def kit_run(ns, nodes):
     return s, lambda ions, **o: fax.growth_rate(4e5, phi, geo, HARM, ions, RHO, **{"nodes": nodes, "ntheta": 32, **AXI, **o})
 
 
-@pytest.mark.parametrize(("ns", "nodes", "ref"), [(32, 32, -3549.327652), (40, 16, -3598.463681)])
-def test_temperature_profile_is_differentiated_at_fixed_energy(ns, nodes, ref):
+@pytest.mark.parametrize(("ns", "nodes", "ref", "nuclear"), [(32, 32, -3549.327652, -3548.191645), (40, 16, -3598.463681, -3597.311593)])
+def test_temperature_profile_is_differentiated_at_fixed_energy(ns, nodes, ref, nuclear):
     """``d_s F0 = f_M {n' + n [E/T - 3/2] T'/T}`` at fixed ``E`` (section 7: radial derivatives at fixed E and mu) for
     ``T = 139 [1 + 0.8 (s - 1/4)]`` keV, ``n = 1e17 (1 - 0.65 s)``. Oracle: the same kernel with a distribution written here whose radial
     term is the centred difference (h = 1e-5 in s) of ``n(s) f_M(E; T(s))`` at the fixed resonant energy, so the geometry and resonance
     weights are shared and only ``d_s F0`` is tested. Plan step 1.5 gives -3549.33 (32 x 32) and -3598.46 s^-1 (40 x 16) at the atomic
     deuterium mass; 1.2.0 returned +2297.92 (T aligned with the pitch axis), a shape error, or +1318.16 / +1336.02 (T' dropped).
-    Tolerance 1e-8: the truncation of the centred difference, h^2 |d^3F/ds^3| / |dF/ds| < 1e-8 for E/T < 10 and T'/T < 0.8."""
+    Tolerance 1e-8: the truncation of the centred difference, h^2 |d^3F/ds^3| / |dF/ds| < 1e-8 for E/T < 10 and T'/T < 0.8.
+    ``nuclear``: the same case at the default nuclear deuteron mass, a regression value of this code."""
     s, run = kit_run(ns, nodes)
     dens, temp = (lambda x: 1e17 * (1 - 0.65 * x)), (lambda x: 139e3 * (1 + 0.8 * (x - 0.25)))
     m, e, col, h = ATOMIC_D * AMU, 1.602176634e-19, s[:, None], 1e-5
@@ -392,6 +394,7 @@ def test_temperature_profile_is_differentiated_at_fixed_energy(ns, nodes, ref):
     assert flat == pytest.approx(run(replace(ions, temperature_ev=139e3)), rel=1e-12)  # a flat profile is the scalar
     with pytest.raises(ValueError):
         run(replace(ions, temperature_ev=temp(s)[:5]))
+    assert float(run(fax.FastIons(dens(s), temp(s)))) == pytest.approx(nuclear, rel=1e-9)
 
 
 def test_zero_guard_sets_the_mean_of_the_orbit_angle_to_zero():
@@ -406,6 +409,7 @@ def test_zero_guard_sets_the_mean_of_the_orbit_angle_to_zero():
     zero = float(run(ions, guard=0.0))
     assert zero == pytest.approx(8220.74853, rel=1e-9)
     assert zero == pytest.approx(float(run(ions, guard=1e-6)), rel=1e-13)
+    assert float(run(replace(ions, mass_amu=fax.FastIons().mass_amu), guard=0.0)) == pytest.approx(8220.197188, rel=1e-9)  # regression
     with pytest.raises(ValueError, match="rational"):
         drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=0.0)
     assert jnp.isfinite(drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=1e-3))
