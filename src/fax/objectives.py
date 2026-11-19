@@ -31,7 +31,7 @@ from .eigen import (
     split_solver,
     targeted_eigenpairs,
 )
-from .geometry import Geometry, _facts, from_booz_xform, surface_grid
+from .geometry import Geometry, _fact, from_booz_xform, surface_grid
 
 
 def window_risk(frequencies_hz: Any, window_hz: tuple[float, float], softness_hz: float) -> jax.Array:
@@ -339,7 +339,7 @@ def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
 
 def _axisymmetric(geo: Geometry) -> bool:
     """True when no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle (``geo.axisymmetric`` when traced)."""
-    return _facts(geo).get("axisymmetric", geo.axisymmetric)
+    return bool(_fact(geo, "axisymmetric"))
 
 
 def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
