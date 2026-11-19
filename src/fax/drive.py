@@ -107,6 +107,7 @@ def growth_rate(
     ntheta: int = 64,
     nzeta: int = 32,
     resolved: bool = False,
+    standing: bool = False,
 ) -> Any:
     """Fast-ion growth rate (1/s) of a mode ``phi`` (shape ``(len(geo.s), H)``, nodal values) at ``omega`` (rad/s).
 
@@ -116,6 +117,14 @@ def growth_rate(
     ``helical = 0`` is exact with ``nzeta = 1``. ``resolved=True`` returns the resonances
     ``(j, k)`` and the growth rate of each instead of their sum. ``boundary`` and ``guard`` are the passing-boundary and
     small-divisor regularizations described in the module docstring (defaults 0 and 1e-2).
+
+    ``standing=True`` reads ``phi`` as a cosine- or sine-sector mode of :func:`fax.eigenmodes`, the standing wave
+    ``Re sum_h phi_h exp(i(m_h theta - n_h zeta))``: the rate is that of its travelling components ``phi / 2`` on ``(m, n)``
+    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference. It is the rate of the mode only when the
+    cosine and sine partners are further apart in frequency than the drive couples them; a nearer pair needs the 2 x 2 ledger
+    of the two modes, and in an axisymmetric field, where the partners are degenerate, the travelling rates (this function
+    without ``standing``, on ``(m, n)`` and on ``(-m, -n)``) are the physical ones. A mode of :func:`fax.eigenmodes` whose
+    block folds ``(-m, -n)`` rows goes through :func:`fax.eigen.travelling` first.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(
@@ -126,6 +135,13 @@ def growth_rate(
         ],
         dtype=float,
     )
+    if standing:  # each travelling component keeps its own sidebands; a harmonic listed twice (as (0, 0)) sums its parts
+        hm, row = np.unique(np.concatenate([hm, -hm]), axis=0, return_inverse=True)
+        both = jnp.concatenate([jnp.asarray(phi), jnp.conj(jnp.asarray(phi))], 1) / 2
+        phi, pairs = (
+            jnp.zeros((both.shape[0], len(hm)), complex).at[:, row.reshape(-1)].add(both),
+            np.unique(np.concatenate([pairs, -pairs]), axis=0),
+        )
     gamma = _growth_rate(omega, jnp.asarray(phi), geo, hm, ions, mass_density, pairs, boundary, guard, nodes, ntheta, nzeta)
     return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
 

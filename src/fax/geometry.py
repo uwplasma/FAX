@@ -120,6 +120,12 @@ def symmetric(geo: Geometry) -> bool:
     return bool(_fact(geo, "stellsym"))
 
 
+def axisymmetric(geo: Geometry) -> bool:
+    """Whether no harmonic of ``|B|``, ``R`` or ``Z`` depends on the toroidal angle: from the arrays on the host, else
+    ``geo.axisymmetric`` (``None``, unknown, counts as not axisymmetric)."""
+    return bool(_fact(geo, "axisymmetric"))
+
+
 def _fact(geo: Geometry, name: str) -> bool | None:
     """A symmetry fact of ``geo``: from its arrays when they are concrete, else the static field (``None`` when unknown)."""
     return _facts(lambda key: getattr(geo, key), geo.nfp).get(name, getattr(geo, name))

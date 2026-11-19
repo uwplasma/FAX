@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import fax
-from fax.continuum import MU0, generalized_eigh
+from fax.continuum import MU0, generalized_eigh, spectral_blocks
 from fax.eigen import dense, global_matrices
 from fax.geometry import symmetric
 
@@ -125,7 +125,7 @@ def test_inputs_are_validated_on_the_host():
         fax.continuum(geo, h, rho, 8, 4)  # dm = 8 wraps onto dm = 0
     assert np.isfinite(fax.continuum(fax.circular_torus(epsilon_B=0.1), h, rho, 17, 4)).all()
     with pytest.raises(ValueError, match="aliases"):
-        fax.continuum(geo, [[1.0, 0.0], [1.0, 2.0]], rho, 32, 4)
+        fax.continuum(geo, [[1.0, 0.0], [1.0, 2.0]], rho, 32, 4, parity="single")  # by default n = 0 and 2 are separate blocks
     with pytest.raises(ValueError, match="density"):
         fax.continuum(geo, h, 0.0, 32, 4)
     with pytest.raises(ValueError, match="increasing"):
@@ -246,7 +246,7 @@ def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
     """The facts that choose the real path, the coupled families and the one-period average are static fields set by each
     constructor, so eager and compiled calls agree; ``dataclasses.replace`` under ``jax.jit`` cannot inherit facts its new
     arrays may break. The ``nfp = 1`` field with an ``n = 1`` harmonic of ``R`` and ``Z`` is three-dimensional: ``n = 0``
-    and ``n = 1`` couple."""
+    and ``n = 1`` couple, so the default basis is one self-conjugate family: 6 cosine and 6 sine branches per surface."""
     from fax.geometry import field_period
 
     s, h, rho = jnp.linspace(0.1, 0.9, 9), fax.mode_family((0, 1), 3, 1), 3.4e-8
@@ -256,10 +256,16 @@ def test_traced_geometry_keeps_the_symmetry_facts_of_its_constructor():
     assert facts(torus) == (True, True, True) and facts(helical) == (False, True, True)
     assert facts(replace(helical, nfp=2)) == (False, True, False) and not replace(torus, bmns=torus.bmnc).stellsym
     eager, compiled = fax.continuum(helical, h, rho, 16, 8), jax.jit(lambda g: fax.continuum(g, h, rho, 16, 8))(helical)
-    assert eager.shape == compiled.shape == (9, 6)
+    assert eager.shape == compiled.shape == (9, 12)
     np.testing.assert_allclose(compiled, eager, rtol=1e-12)
-    added = lambda g: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8)  # noqa: E731
-    np.testing.assert_allclose(jax.jit(added)(torus), added(torus), rtol=1e-12)  # a sine harmonic added under jit
+    modes = lambda g: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8).omega2  # noqa: E731
+    np.testing.assert_allclose(jax.jit(modes)(helical), modes(helical), rtol=1e-10)
+    added = lambda g, **p: fax.continuum(replace(g, bmns=g.bmns.at[:, 1].add(5e-3)), h, rho, 16, 8, **p)  # noqa: E731
+    assert added(torus).shape == (9, 9)  # eager: n = 0 on both signs (6) and n = 1 alone (3)
+    with pytest.raises(ValueError, match="axisymmetry"):  # traced replace: unknown axisymmetry would decide the blocks
+        jax.jit(added)(torus)
+    single = lambda g: added(g, parity="single")  # noqa: E731
+    np.testing.assert_allclose(jax.jit(single)(torus), single(torus), rtol=1e-12)  # no stale stellsym under jit
     zeta_points = lambda f, g: jax.jit(lambda g: fax.surface_grid(f(g), 16, 8, field_period(f(g), 8)).B)(g).shape[-1]  # noqa: E731
     two = lambda g: replace(g, nfp=2)  # noqa: E731
     assert zeta_points(lambda g: g, two(torus)) == 4 and zeta_points(two, torus) == zeta_points(two, helical) == 8  # unknown: full turn
@@ -330,6 +336,114 @@ def test_one_period_average_is_refused_when_a_toroidal_number_is_not_a_multiple_
     for nzeta in (8, 7):
         with pytest.raises(ValueError, match="multiple of nfp"):
             field_period(helical, nzeta)
+
+
+def test_default_basis_is_both_signs_split_into_independent_blocks(asymmetric_torus):
+    """n = 0 in a tokamak couples (m, 0) to (-m', 0): the default is the cos and sin sectors (symmetric geometry) or one
+    complex pencil on both signs (asymmetric or traced), the spectrum of the two-sign list either way; n != 0 is unchanged."""
+    sym = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1)
+    h, both, rho = fax.mode_family(0, 4, 1), np.concatenate([fax.mode_family(0, 4, 1), -fax.mode_family(0, 4, 1)]), 3.4e-8
+    assert [(b.parity, len(b.rows)) for b in spectral_blocks(sym, h)] == [(1, 4), (-1, 4)]
+    assert [(b.parity, len(b.rows)) for b in spectral_blocks(asymmetric_torus, h)] == [(None, 8)]
+    assert [b.parity for b in spectral_blocks(sym, fax.mode_family(1, 4))] == [None]  # n != 0 alone: the single-sign list
+    pair = spectral_blocks(sym, fax.mode_family((1, -1), 3))  # n = 1 with n = -1: one pencil, (0, -1) is (0, 1) conjugated
+    assert [(b.parity, len(b.rows), int((b.sign < 0).sum())) for b in pair] == [(None, 7, 3)]
+    for geo in (sym, asymmetric_torus):
+        two = fax.continuum(geo, both, rho, parity="single")
+        np.testing.assert_allclose(fax.continuum(geo, h, rho), two, rtol=1e-10)
+        np.testing.assert_allclose(jax.jit(lambda g: fax.continuum(g, h, rho))(geo), two, rtol=1e-10)  # traced: one pencil
+        assert np.abs(fax.continuum(geo, h, rho, parity="single")[:, :4] - two[:, ::2]).max() > 1e-3 * two.max()
+        ref = fax.eigenmodes(geo, both, rho, parity="single")
+        full = fax.eigenmodes(geo, h, rho)
+        np.testing.assert_allclose(full.omega2, ref.omega2, rtol=1e-10)
+        mid = float(np.median(ref.frequencies_hz))
+        near = fax.eigenmodes(geo, h, rho, target_hz=mid, count=6)
+        np.testing.assert_allclose(near.omega2, np.sort(ref.omega2[np.argsort(np.abs(ref.omega2 - (2 * np.pi * mid) ** 2))[:6]]), rtol=1e-9)
+        assert near.status.converged and full.structures.shape == (len(ref.omega2), 9, 4)
+        F, G = (dense(A) for A in global_matrices(geo, both, rho))  # every mode, mapped to the listed harmonics,
+        y = np.concatenate([full.structures, np.conj(full.structures)], -1).reshape(len(full.omega2), -1)  # is an eigenvector
+        r = np.linalg.norm(y @ F.T - full.omega2[:, None] * (y @ G.T), axis=1) / np.linalg.norm(y @ F.T, axis=1)
+        assert r.max() < 1e-8
+    f = lambda r, g=sym: fax.frequency_hz(g, h, r, 2, 3)  # noqa: E731
+    np.testing.assert_allclose(jax.grad(f)(rho), -f(rho) / (2 * rho), rtol=1e-8)
+    loss = lambda e: fax.frequency_hz(fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=e), h, rho, 2, 3)  # noqa: E731
+    assert jax.grad(loss)(0.1) == pytest.approx((loss(0.1 + 1e-5) - loss(0.1 - 1e-5)) / 2e-5, rel=1e-5)
+
+
+def test_count_above_the_basis_size_raises():
+    """A targeted solve asks for at most as many modes as the basis has unknowns (surfaces x harmonics, summed over the
+    blocks), as for one pencil: 9 x 4 in each sector of the n = 0 family, 9 x 4 for the single n = 1 family."""
+    geo, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1), 3.4e-8
+    for h, size in ((fax.mode_family(0, 4, 1), 72), (fax.mode_family(1, 3), 36)):
+        with pytest.raises(ValueError, match="count"):
+            fax.eigenmodes(geo, h, rho, target_hz=2e5, count=size + 1)
+
+
+def stellarator(nfp, epsilon_B=0.1, sine=0.0):
+    """Circular torus whose ``m = 2`` harmonic of ``|B|``, ``R`` and ``Z`` turns into ``(2, nfp)``: a stellarator-symmetric
+    three-dimensional field, or an asymmetric one with a ``sin(theta)`` harmonic of ``|B|`` of amplitude ``sine`` (T)."""
+    g = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=epsilon_B, nfp=nfp)
+    return replace(g, xn=g.xn.at[2].set(nfp), bmnc=g.bmnc.at[:, 2].set(-0.2 * g.s), bmns=g.bmns.at[:, 1].set(sine))
+
+
+def test_sectors_give_the_full_basis_and_an_asymmetric_field_takes_the_complex_path():
+    """N = 1 at nfp = 2 is self-conjugate: on a symmetric field the cosine and sine sectors together are the spectrum of the
+    two-sign list (theory, section 2) to 1e-10. A sine harmonic of |B| (1e-2 T) breaks the symmetry: the default is then one
+    complex pencil on both signs, again the two-sign spectrum, and it differs from the sector solve of the symmetric field."""
+    h, rho = fax.mode_family((1, 3), 3), 3.4e-8
+    both, sym, asym = np.concatenate([h, -h]), stellarator(2), stellarator(2, sine=1e-2)
+    full = fax.continuum(sym, both, rho, 16, 16, parity="single")
+    sectors = np.sort(np.concatenate([fax.continuum(sym, h, rho, 16, 16, parity=p) for p in (1, -1)], 1), 1)
+    np.testing.assert_allclose(sectors, full, rtol=1e-10)
+    np.testing.assert_allclose(fax.continuum(sym, h, rho, 16, 16), full, rtol=1e-10)
+    assert [(b.parity, len(b.rows)) for b in spectral_blocks(asym, h)] == [(None, 16)]
+    complex_path = fax.continuum(asym, h, rho, 16, 16)
+    np.testing.assert_allclose(complex_path, fax.continuum(asym, both, rho, 16, 16, parity="single"), rtol=1e-10)
+    assert np.abs(complex_path / full - 1).max() > 1e-5
+    with pytest.raises(ValueError, match="stellarator-symmetric"):
+        fax.continuum(asym, h, rho, 16, 16, parity=1)
+
+
+def test_completion_leaves_a_family_that_is_not_self_conjugate_unchanged():
+    """N = 1 at nfp = 5 has 2 N != 0 (mod 5): (m, n) never couples to (-m', -n'), so the default basis is the list as given
+    and the two-sign list only doubles every branch (theory, section 2), to 1e-12. The 40-point grid is one period of
+    8 points; a 32-point full turn aliases the products with the (2, 5) harmonic at 2e-7."""
+    h, rho = fax.mode_family((1, 6, -4), 3), 3.4e-8
+    geo = stellarator(5)
+    single = fax.continuum(geo, h, rho, 16, 40, parity="single")
+    np.testing.assert_allclose(fax.continuum(geo, h, rho, 16, 40), single, rtol=1e-12)
+    doubled = fax.continuum(geo, np.concatenate([h, -h]), rho, 16, 40, parity="single")
+    for copy in (doubled[:, ::2], doubled[:, 1::2]):
+        np.testing.assert_allclose(copy, single, rtol=1e-12)
+
+
+@pytest.mark.parametrize("sine, parity", [(0.0, 1), (0.0, -1), (0.0, None), (1e-3, None)])
+def test_dense_and_targeted_values_and_reverse_derivatives_agree(sine, parity):
+    """The real path in each sector, both sectors merged, and the complex two-sign pencil of an asymmetric field: the
+    targeted solve of the most isolated interior eigenvalue equals the dense one, and so does its reverse-mode derivative in
+    epsilon_B (both exact first derivatives of one simple eigenvalue)."""
+    h, rho, grid = fax.mode_family((1, 3), 3), 3.4e-8, dict(ntheta=16, nzeta=16, parity=parity)
+    w2 = np.asarray(fax.eigenmodes(stellarator(2, sine=sine), h, rho, **grid).omega2)
+    k = 1 + int(np.argmax(np.minimum(np.diff(w2)[:-1], np.diff(w2)[1:])[: len(w2) // 2]))
+    target = float(np.sqrt(w2[k] + 0.1 * (w2[k + 1] - w2[k])) / (2 * np.pi))  # off the eigenvalue: the shift stays regular
+    dense_f = lambda e: fax.frequency_hz(stellarator(2, e, sine), h, rho, k, k + 1, **grid)  # noqa: E731
+    near_f = lambda e: fax.frequency_hz(stellarator(2, e, sine), h, rho, 0, 1, target_hz=target, count=1, **grid)  # noqa: E731
+    assert near_f(0.1) == pytest.approx(dense_f(0.1), rel=1e-10)
+    assert jax.grad(near_f)(0.1) == pytest.approx(jax.grad(dense_f)(0.1), rel=1e-7)
+
+
+def test_continuum_vanishes_at_the_rational_surface_and_families_match_a_full_torus_solve():
+    """Spong et al. (2003): every row of the continuum stiffness carries ``m iota - n``, so at ``m iota = n`` (here (5, 2) at
+    iota = 0.4) the spectrum has an exact zero on every surface, and none at iota = 0.41. The families ``n mod nfp`` do not
+    couple: their blocks give the spectrum of one full-torus solve of every listed harmonic on both signs (33 toroidal
+    points, not a multiple of nfp, so the whole turn), to 1e-12."""
+    rho, h = 3.4e-8, fax.mode_family((0, 2), 6, 1)
+    f = np.asarray(fax.continuum(stellarator(2), h, rho))
+    off = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.41, epsilon_B=0.1, nfp=2)
+    assert (f.min(1) < 1e-6 * f.max()).all() and (np.asarray(fax.continuum(off, h, rho)).min(1) > 1e-2 * f.max()).all()
+    h = fax.mode_family((0, 1, 2, 3), 3, 1)
+    full = fax.continuum(stellarator(2), np.unique(np.concatenate([h, -h]), axis=0), rho, 32, 33, parity="single")
+    np.testing.assert_allclose(fax.continuum(stellarator(2), h, rho, 32, 32), full, rtol=1e-12)
 
 
 def test_booz_xform_output_dictionary_matches_the_file_reader():
