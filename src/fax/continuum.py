@@ -117,7 +117,14 @@ def sound_coupling(
 
 
 def continuum_matrices(
-    geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32, pressure: Any = None, gamma: float = 5.0 / 3.0
+    geo: Geometry,
+    harmonics: Any,
+    density: Any,
+    ntheta: int = 32,
+    nzeta: int = 32,
+    pressure: Any = None,
+    gamma: float = 5.0 / 3.0,
+    parity: int | None = None,
 ) -> Matrices:
     """Assemble the per-surface continuum matrices with FFT-exact angle quadrature.
 
@@ -129,9 +136,13 @@ def continuum_matrices(
     :func:`sound_coupling` with adiabatic index ``gamma``: the matrices become ``2H x 2H``, the first ``H`` unknowns the
     surface displacement and the last ``H`` the parallel displacement over ``|B|``. Include ``-m`` and ``m`` (``mode_family``
     with ``m_min < 0``) when ``n = 0``, since the geodesic curvature couples ``m`` to ``-m`` through the conjugate sideband.
+
+    ``parity`` (stellarator-symmetric host geometry only) solves one real sector of the physical potential: ``1`` the
+    ``cos(m theta - n zeta)`` basis (STELLGAP's), ``-1`` the ``sin`` basis (AE3D's); see :func:`parity_basis`.
     """
     h = jnp.asarray(harmonics, dtype=float)
     check_modes(geo, h, density)
+    h, project = parity_basis(geo, h, parity)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
     for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
         check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
@@ -144,7 +155,34 @@ def continuum_matrices(
         )
         check(gamma > 0, "gamma must be positive")
     KM = _continuum_matrices(geo, grid, h, density, pressure, gamma)
-    return jax.tree_util.tree_map(jnp.real, KM) if symmetric(geo) else KM
+    return jax.tree_util.tree_map(project, KM) if symmetric(geo) else KM
+
+
+def parity_basis(geo: Geometry, h: jax.Array, parity: int | None) -> tuple[jax.Array, Any]:
+    """Harmonics and the map applied to each assembled matrix: ``(h, real part)`` without ``parity``.
+
+    The single-sign basis ``exp(i(m theta - n zeta))`` of ``h`` drops the coupling of ``(m, n)`` to ``(-m', -n')`` through
+    the field harmonic ``(m + m', n + n')``, which exists whenever ``2 n`` is a multiple of ``nfp`` (every family at
+    ``nfp = 2``, ``n = 0`` in a tokamak). A real potential needs both signs. With stellarator symmetry the problem on
+    ``h`` and ``-h`` splits exactly into the ``cos`` (``parity = 1``) and ``sin`` (``-1``) sectors, each real and of size
+    ``len(h)``; this returns ``h`` and ``-h`` and the projection onto the requested sector.
+
+    Symmetry is read from the asymmetric harmonics as host zeros (:func:`fax.geometry.symmetric`), so a sector is refused
+    with ``ValueError`` for a traced geometry, as under ``jax.jit`` of a function of the geometry; ``parity=None`` works there.
+    """
+    if parity is None:
+        return h, jnp.real
+    check(parity in (1, -1), "parity must be 1 (cos sector) or -1 (sin sector)")
+    check(symmetric(geo), "parity sectors need a stellarator-symmetric geometry")
+    check(~jnp.any(jnp.all(h[:, None] == -h[None], -1) & ~jnp.eye(len(h), dtype=bool)), "parity sectors take each (m, n) once up to sign")
+    check(parity == 1 or ~jnp.any(jnp.all(h == 0, -1)), "the sin sector has no (0, 0) harmonic")
+    q = jnp.concatenate([jnp.eye(len(h)), parity * jnp.eye(len(h))]) / jnp.sqrt(2.0)
+
+    def project(A: jax.Array) -> jax.Array:  # with sound the unknowns are (E, c), each on h and -h
+        Q = q if A.shape[-1] == q.shape[0] else jax.scipy.linalg.block_diag(q, q)
+        return jnp.einsum("ia,...ij,jb->...ab", Q, A, Q).real
+
+    return jnp.concatenate([h, -h]), project
 
 
 @jax.jit
@@ -163,11 +201,18 @@ def _continuum_matrices(geo: Geometry, grid: Any, h: jax.Array, density: Any, pr
 
 
 def continuum(
-    geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32, pressure: Any = None, gamma: float = 5.0 / 3.0
+    geo: Geometry,
+    harmonics: Any,
+    density: Any,
+    ntheta: int = 32,
+    nzeta: int = 32,
+    pressure: Any = None,
+    gamma: float = 5.0 / 3.0,
+    parity: int | None = None,
 ) -> jax.Array:
     """Continuum frequencies in Hz, sorted on each surface, shape ``(surfaces, H)`` (``2H`` with ``pressure``, see
     :func:`continuum_matrices`)."""
-    K, M = continuum_matrices(geo, harmonics, density, ntheta, nzeta, pressure, gamma)
+    K, M = continuum_matrices(geo, harmonics, density, ntheta, nzeta, pressure, gamma, parity)
     w2 = generalized_eigh(K, M)[0]
     return jnp.sqrt(jnp.maximum(w2, 0.0)) / (2.0 * jnp.pi)
 

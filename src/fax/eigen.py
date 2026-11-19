@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 import solvax
 
-from .continuum import MU0, angle_mean, check_modes, generalized_eigh
+from .continuum import MU0, angle_mean, check_modes, generalized_eigh, parity_basis
 from .geometry import Geometry, _d_ds, check, surface_grid, symmetric
 
 
@@ -78,7 +78,13 @@ class Eigenmodes(NamedTuple):
 
 
 def global_matrices(
-    geo: Geometry, harmonics: Any, density: Any, ntheta: int = 32, nzeta: int = 32, finite_beta: bool = False
+    geo: Geometry,
+    harmonics: Any,
+    density: Any,
+    ntheta: int = 32,
+    nzeta: int = 32,
+    finite_beta: bool = False,
+    parity: int | None = None,
 ) -> tuple[Blocks, Blocks]:
     """Bending ``F`` and inertia ``G`` (``w^2`` in rad^2/s^2); surfaces must lie strictly inside ``(0, 1)``.
 
@@ -86,12 +92,16 @@ def global_matrices(
     and pressure-curvature terms of ``delta W`` (see :func:`equilibrium_currents` and ``docs/theory.md``, section 4)::
 
         int sigma b.(grad phi~* x grad u) dV - 2 mu0 int (b x grad phi.grad p)(b x grad phi~*.kappa) / B^2 dV.
+
+    ``parity`` (``1`` cos, ``-1`` sin, stellarator-symmetric host geometry only) solves one real sector of the potential on
+    ``(m, n)`` and ``(-m, -n)``, see :func:`fax.continuum.parity_basis`; ``-1`` is AE3D's sine basis.
     """
     h = jnp.asarray(harmonics, dtype=float)
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
+    h, project = parity_basis(geo, h, parity)
     F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta), h, density, finite_beta)
-    return jax.tree_util.tree_map(jnp.real, (F, G)) if symmetric(geo) else (F, G)
+    return jax.tree_util.tree_map(project, (F, G)) if symmetric(geo) else (F, G)
 
 
 @partial(jax.jit, static_argnums=4)
