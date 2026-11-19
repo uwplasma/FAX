@@ -90,7 +90,11 @@ def global_matrices(
     h = jnp.asarray(harmonics, dtype=float)
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
-    g = surface_grid(geo, ntheta, nzeta)
+    return _global_matrices(geo, surface_grid(geo, ntheta, nzeta), h, density, finite_beta)
+
+
+@partial(jax.jit, static_argnums=4)
+def _global_matrices(geo: Geometry, g: Any, h: jax.Array, density: Any, finite_beta: bool) -> tuple[Blocks, Blocks]:
     D, (iota_s, D_s) = geo.G + geo.iota * geo.I, _d_ds(jnp.stack([geo.iota, geo.G + geo.iota * geo.I], 1), geo.s).T
     inertia, bending = _modes(g, geo.iota, iota_s, D, D_s, h)
     r = lambda a: a[:, None, None, None]  # noqa: E731 - per-surface value -> (S, 1, T, Z)
@@ -206,6 +210,7 @@ def _assemble(s: jax.Array, flat: jax.Array, A: jax.Array, Bm: jax.Array, D: jax
     return Blocks(diag, LR[1:-1])
 
 
+@jax.jit
 def dense(A: Blocks) -> jax.Array:
     """Dense ``(N H, N H)`` matrix of a block-tridiagonal one."""
     N, H = A.diag.shape[:2]
