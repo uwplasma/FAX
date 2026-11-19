@@ -6,6 +6,7 @@ and holds the comparison helpers (``examples/knyazev_qa.py`` uses them). Toleran
 
 from pathlib import Path
 
+import jax
 import knyazev_ref as kq
 import numpy as np
 import pytest
@@ -77,3 +78,20 @@ def test_parity_sectors_split_the_two_sign_problem_and_cos_is_stellgaps_basis(fx
     assert err.mean() < 2e-3 and err.max() < 3e-3  # STELLGAP's cos basis: 1.6e-3 mean, 2.6e-3 max on all 98 (single-sign 3.0e-3, 4.3e-3)
     with pytest.raises(ValueError, match="once up to sign"):
         fax.continuum(geo, both, kq.RHO, 112, 72, parity=1)
+
+
+def test_one_field_period_of_quadrature_matches_the_full_turn(fx):
+    """At nfp = 2 the averages use one field period of the angle grid; the full turn gives the same matrices."""
+    from fax.continuum import _continuum_matrices
+    from fax.eigen import _global_matrices
+    from fax.geometry import field_period, surface_grid
+
+    geo, h = kq.geometry(fx, 8), fx["mn"][fx["order"][:16]].astype(float)
+    assert field_period(geo, 48) == 2 and field_period(geo, 47) == 1 and surface_grid(geo, 64, 48, 2).B.shape == (8, 64, 24)
+    full = surface_grid(geo, 64, 48)
+    K, M = fax.continuum_matrices(geo, h, kq.RHO, 64, 48, pressure=1e3)
+    for a, b in zip((K, M), _continuum_matrices(geo, full, h, kq.RHO, 1e3, 5 / 3, 1), strict=True):
+        np.testing.assert_allclose(a, b, atol=1e-12 * float(np.abs(b).max()))
+    blocks = global_matrices(geo, h, kq.RHO, 64, 48, finite_beta=True), _global_matrices(geo, full, h, kq.RHO, True, 1)
+    for a, b in zip(*map(jax.tree_util.tree_leaves, blocks), strict=True):
+        np.testing.assert_allclose(a, b, atol=1e-12 * float(np.abs(b).max()))
