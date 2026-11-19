@@ -175,13 +175,39 @@ def test_stellarator_drive_gradient_and_sidebands():
     pairs, gam = fax.growth_rate(
         jnp.sqrt(ev.omega2[-1]), ev.structures[-1], geo, design.harmonics, ions, 3.4e-8, ntheta=32, nzeta=32, resolved=True
     )
-    standing = fax.growth_rate(
-        jnp.sqrt(ev.omega2[-1]), ev.structures[-1], geo, design.harmonics, ions, 3.4e-8, ntheta=32, nzeta=32, standing=True
-    )
-    np.testing.assert_allclose(fax.geometry_growth_rates(g0, design, ions, 4, ntheta=32, nzeta=32)[-1], standing, rtol=1e-8)  # sector modes
     side = jnp.sum(jnp.where(pairs[:, 1] != 1, gam, 0.0))
     pure = jnp.sum(jnp.where(jnp.abs(pairs[:, 1]) > 3, jnp.abs(gam), 0.0))  # k = -3, 5: only through the helical B harmonics
     assert jnp.all(jnp.isfinite(gam)) and 1e-6 < abs(side / jnp.sum(gam)) < 1e-2 and pure > 0
+
+
+@pytest.mark.slow
+def test_near_degenerate_sector_pair_is_driven_as_its_travelling_waves():
+    """Plan 8.5. The LP-QA n = 1 sine and cosine modes near 104.4 and 104.6 kHz are about 1400 rad/s apart while the drive
+    couples them at about 1.6e4 1/s, so the physical modes are the travelling combinations. Independently, on the two-sign
+    list (``parity="single"``, the complex path) through ``growth_rate`` read as travelling: the rate of
+    ``y_a + exp(i phi) y_b`` at the mean frequency is ``c + R cos(phi - phi_0)``, and ``c +- R`` are the travelling rates.
+    ``geometry_growth_rates`` gives them to within ``delta omega^2 / (8 R)`` (about 16 1/s, here allowed 40), the shift
+    the splitting adds."""
+    h = fax.mode_family((1, -1, 3), 5)
+    design = fax.prepare_design(
+        INPUT, harmonics=h, density=3.4e-8, parameters=("rc01",), nodes=16, ntheta=16, nzeta=16, target_hz=104e3, count=4
+    )
+    ions = fax.FastIons(density=1e15 * (1 - jnp.arange(1, 17) / 17) ** 2, temperature_ev=150e3)
+    g0 = fax.design_geometry(jnp.zeros(1), design)
+    geo = g0.interpolate(jnp.arange(1, 17) / 17)
+    both = np.unique(np.concatenate([h, -h]), axis=0)
+    ev = fax.eigenmodes(geo, both, 3.4e-8, target_hz=104e3, count=4, ntheta=16, nzeta=16, parity="single")
+    w = np.sqrt(np.asarray(ev.omega2))
+    a = int(np.argmin(np.diff(w)))  # the closest pair
+    assert np.diff(w)[a] < 2e3
+    pair = lambda phi: ev.structures[a] + np.exp(1j * phi) * ev.structures[a + 1]  # noqa: E731
+    rate = lambda phi: fax.growth_rate(w[a : a + 2].mean(), pair(phi), geo, both, ions, 3.4e-8, ntheta=32, nzeta=32)  # noqa: E731
+    g = [float(rate(p)) for p in (0.0, np.pi / 2, np.pi, 1.5 * np.pi)]
+    c, R = np.mean(g), np.hypot(g[0] - g[2], g[1] - g[3]) / 2
+    assert R > 10 * np.diff(w)[a] ** 2 / R  # coupling above splitting: the travelling regime
+    got = np.sort(np.asarray(fax.geometry_growth_rates(g0, design, ions, 4, ntheta=32, nzeta=32)))
+    near = got[np.argsort(np.abs(got - c))[-2:]]  # the pair, farthest from the diagonal mean
+    np.testing.assert_allclose(np.sort(near), [c - R, c + R], atol=40.0)
 
 
 @pytest.mark.slow
