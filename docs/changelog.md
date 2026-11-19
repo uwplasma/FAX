@@ -11,6 +11,14 @@ What changes for users of 1.2.0:
 - `ntheta` and `nzeta` of `continuum`, `continuum_matrices`, `global_matrices` and `eigenmodes` default to `None`: the
   smallest even grid that does not alias the assembled harmonics, at least 32 ({func}`fax.continuum.grid_size`). Lists that
   fit 32 points keep the 1.2.0 grid; wider ones, which 1.2.0 refused by default, get a finer grid.
+- The design path (`geometry_frequencies`, `design_frequencies`, `geometry_growth_rates`), `summary` and the case runner use
+  the same default basis. A vmex state without `lasym` is stated stellarator symmetric, so the design path solves real
+  sectors under `jax.jit`. The quasi-axisymmetric example `examples/qa_vmex.py` moves from 294.11, 294.44, 294.92 kHz to
+  245.55, 245.76, 246.06 kHz. The case file key `run.parity` is `"auto"` (default), `"single"`, `1` or `-1`, and
+  `ntheta = nzeta = 0` there means the default grid.
+- `geometry_growth_rates` reads the modes of cosine and sine sectors as standing waves (`growth_rate(..., standing=True)`).
+- `mode_families` groups a real potential: one group per $|n|$ in a tokamak and one per pair $\{N, -N\}$ of
+  $N = n \bmod N_{fp}$ in a stellarator, instead of one per $n$ and one per $N$.
 - `mode_family` returns a NumPy array instead of a JAX array: harmonics are static host data.
 - `growth_rate(..., standing=True)` gives the drive of a cosine- or sine-sector mode, the standing wave of its two
   travelling components; without it the mode is read as a travelling wave, as in 1.2.0.
@@ -20,3 +28,5 @@ What stops working:
 - An explicit angle grid that resolves the listed harmonics can be refused, since both signs double the span of $m$ and
   $n$: `continuum(geo, mode_family(0, 6, 1), rho, 16, 4)` raises "ntheta=16 aliases the harmonics" (it needs
   `ntheta > 24`, or `parity="single"`).
+- A stated symmetry fact (`Geometry.from_arrays(..., stellsym=True)`) that the concrete arrays contradict raises.
+- A basis that mixes sector modes with travelling modes is refused by `geometry_growth_rates`.
