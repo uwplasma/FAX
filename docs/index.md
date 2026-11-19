@@ -69,4 +69,5 @@ comparisons
 api
 development
 references
+changelog
 ```
