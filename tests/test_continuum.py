@@ -232,6 +232,30 @@ def test_parity_sectors_refuse_a_traced_geometry():
             jax.jit(f)(geo)
 
 
+def test_one_period_average_is_refused_when_a_toroidal_number_is_not_a_multiple_of_nfp():
+    """``nfp = 2`` with an ``n = 1`` harmonic of ``R`` and ``Z``: the field has no half-turn period, so the averages over one
+    period drop the ``dn = 1`` couplings. Host and traced assembly must both average over the full turn."""
+    from fax.continuum import _continuum_matrices
+    from fax.eigen import _global_matrices
+    from fax.geometry import field_period, surface_grid
+
+    geo = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1, nfp=2)
+    helical, h, rho = replace(geo, xn=geo.xn.at[2].set(1.0)), fax.mode_family((0, 1), 3, 1), 3.4e-8
+    assert field_period(geo, 8) == 2 and field_period(helical, 8) == 1 and field_period(geo, 7) == 1
+    full, half = surface_grid(helical, 16, 8), surface_grid(helical, 16, 8, 2)
+    ref = _continuum_matrices(helical, full, h, rho, None, 5 / 3, 1)
+    wrong = _continuum_matrices(helical, half, h, rho, None, 5 / 3, 2)
+    assert jnp.abs(wrong[0] - ref[0]).max() > 1e-3 * jnp.abs(ref[0]).max()  # the half-turn average is wrong here
+    cases = (
+        (lambda g: fax.continuum_matrices(g, h, rho, 16, 8), ref),
+        (lambda g: global_matrices(g, h, rho, 16, 8), _global_matrices(helical, full, h, rho, False, 1)),
+    )
+    for f, want in cases:
+        for got in (f(helical), jax.jit(f)(helical)):
+            for a, b in zip(jax.tree_util.tree_leaves(got), jax.tree_util.tree_leaves(want), strict=True):
+                np.testing.assert_allclose(a, b, atol=1e-12 * float(jnp.abs(b).max()))
+
+
 def test_booz_xform_output_dictionary_matches_the_file_reader():
     """The traceable converter reads ``gmn_b`` when ``gmnc_b`` is absent and prefers ``gmnc_b`` when both are given."""
     from netCDF4 import Dataset
