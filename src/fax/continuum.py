@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import solve_triangular
 
-from .geometry import Geometry, _fact, check, field_period, surface_grid, symmetric
+from .geometry import Geometry, _fact, check, fact_guard, field_period, surface_grid, symmetric
 
 MU0 = 4.0e-7 * jnp.pi
 AMU = 1.66053906660e-27
@@ -163,6 +163,8 @@ def continuum_matrices(
         )
         check(gamma > 0, "gamma must be positive")
     KM = _continuum_matrices(geo, grid, h, density, pressure, gamma, period)
+    if (guard := fact_guard(geo)) is not None:
+        KM = jax.tree_util.tree_map(lambda A: A * guard, KM)
     return jax.tree_util.tree_map(project, KM) if symmetric(geo) else KM
 
 

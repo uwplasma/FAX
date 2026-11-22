@@ -39,7 +39,7 @@ import numpy as np
 import solvax
 
 from .continuum import MU0, angle_mean, block_matrices, check_modes, generalized_eigh, grid_size, on_rows, parity_basis, spectral_blocks
-from .geometry import Geometry, _d_ds, check, field_period, surface_grid, symmetric
+from .geometry import Geometry, _d_ds, check, fact_guard, field_period, surface_grid, symmetric
 
 
 class Blocks(NamedTuple):
@@ -104,6 +104,8 @@ def global_matrices(
     ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
     period = field_period(geo, nzeta)
     F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta, period), h, density, finite_beta, period)
+    if (guard := fact_guard(geo)) is not None:
+        F, G = jax.tree_util.tree_map(lambda A: A * guard, (F, G))
     return jax.tree_util.tree_map(project, (F, G)) if symmetric(geo) else (F, G)
 
 
