@@ -585,6 +585,22 @@ def test_targeted_eigenpairs_dense_limit_is_explicit():
     assert (2, 2) in [s[-2:] for s in _lu_shapes(jax.make_jaxpr(run(2))(0.0).jaxpr)]
 
 
+def test_eigenmodes_and_design_options_forward_dense_limit():
+    """``dense_limit`` reaches SOLVAX from ``eigenmodes`` and the design options: only with it set does the
+    compiled targeted solve hold a dense LU of the whole ``(N H, N H)`` pencil."""
+    geo = fax.circular_torus(s=(jnp.arange(6) + 0.5) / 6, iota=0.3 + 0.3 * (jnp.arange(6) + 0.5) / 6)
+
+    def size(limit):
+        def run(rho):
+            harmonics = jnp.array([[1.0, 1.0], [2.0, 1.0]])
+            return fax.eigenmodes(geo, harmonics, rho, target_hz=1e5, count=2, ntheta=8, nzeta=4, dense_limit=limit).omega2
+
+        return max([s[-1] for s in _lu_shapes(jax.make_jaxpr(run)(1e-7).jaxpr)], default=0)
+
+    assert size(0) < 12 == size(12)
+    assert fax.eigen.split_solver({"dense_limit": 12, "ntheta": 8})[0] == {"dense_limit": 12}
+
+
 def test_targeted_eigenpairs_fallback_and_tied_selection():
     """The invertible [[0, 1], [1, 0]] has a zero first Schur pivot: SOLVAX's dense fallback is
     reported in the status. Selecting one of a tied pair has no derivative; selecting the pair does."""
