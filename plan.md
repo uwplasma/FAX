@@ -562,10 +562,10 @@ Budget in lines, counted with `wc -l`: geometry 380, plasma 180, continuum 260, 
 ```python
 import alfvex
 
-case = alfvex.load("case.toml")          # host: read, validate, resolve paths, reject unknown and inactive keys
-out = alfvex.evaluate(case)              # pure: a pytree of JAX arrays with a Status; no file access
-alfvex.save(out, case)                   # host: results.npz, case.json, and the mode record when asked
-out = alfvex.run("case.toml")            # load, evaluate and save in one call; what `alfvex run` does
+case = alfvex.load("case.toml")  # host: read, validate, resolve paths, reject unknown and inactive keys
+out = alfvex.evaluate(case)  # pure: a pytree of JAX arrays with a Status; no file access
+alfvex.save(out, case)  # host: results.npz, case.json, and the mode record when asked
+out = alfvex.run("case.toml")  # load, evaluate and save in one call; what `alfvex run` does
 ```
 
 `evaluate(case, **inputs)` is the only function that computes. `inputs` overrides the continuous quantities of the case with arrays: `geometry` (a `Geometry`), `boundary` (VMEX boundary offsets), `density`, `te`, `ti`, `pressure`, `fast` and `amplitude`. It is differentiable in those inputs in forward and reverse mode, and it compiles once per case shape. The case itself is static: mesh sizes, the harmonic set, the model switches and the task. `run` converts to NumPy and writes files only after `evaluate` returns. In 1.2.0 `fax.run` raises a tracer conversion error under differentiation, and its export drops the sign of $\omega^2$ and the solver status; `evaluate` and `save` remove both defects.
