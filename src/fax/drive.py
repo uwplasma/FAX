@@ -166,10 +166,10 @@ def _growth_rate(
     e = jnp.exp(1j * (m * g.theta - n * g.zeta)) / (g.B**3 * g.sqrt_g)[:, None]  # (S, H, T, Z)
     kernel = (col(geo.I) * Bz - col(geo.G) * Bt)[:, None] * e * _d_ds(phi, geo.s)[..., None, None]
     kernel = kernel + 1j * Bs[:, None] * (col(geo.G)[:, None] * m + col(geo.I)[:, None] * n) * e * phi[..., None, None]
-    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max from the samples (see _bmax), so
+    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max by Newton on the |B| series from the largest sample (see _bmax), so
     # duplicated toroidal samples change nothing (a log-sum-exp bound shifts with the sample count)
     x, wx = (jnp.asarray(z) for z in np.polynomial.legendre.leggauss(nodes))
-    bmax = _bmax(g.B)[:, None]
+    bmax = _bmax(g.B, (geo.bmnc, geo.bmns, geo.xm, geo.xn))[:, None]
     lam = 0.5 * (x + 1.0) * (1.0 - boundary) / bmax  # (S, L)
     xi = jnp.sqrt(1.0 - lam[..., None, None] * g.B[:, None])  # (S, L, T, Z)
     h = 1.0 / (xi * g.B[:, None])
@@ -220,19 +220,35 @@ def ion_landau_damping(
     return -growth_rate(omega, phi, geo, harmonics, bulk, density * mass_amu * AMU, **options)
 
 
-def _bmax(B: jax.Array) -> jax.Array:
-    """``max |B|`` per surface of ``B`` (S, T, Z): the maximum of the quadratic fitted, with its cross term, on the periodic 3 x 3
-    stencil around the largest sample ``b``, ``b + g.M^-1 g / 2`` (``g`` the centred gradient, ``-M`` the Hessian in grid steps). It
-    is the 1-D parabola of the other angle where one angle is flat (``nzeta = 1``) and ``b`` where ``M`` is not positive definite,
-    so never below the largest sample. Error O(h^4) against O(h^2) for ``b``, also for a helical ridge."""
-    i = jnp.argmax(B.reshape(len(B), -1), 1)
-    at = lambda dt, dz: jnp.roll(B, (-dt, -dz), (1, 2)).reshape(len(B), -1)[jnp.arange(len(B)), i]  # B at (theta + dt, zeta + dz)
-    b, gt, gz = at(0, 0), (at(1, 0) - at(-1, 0)) / 2, (at(0, 1) - at(0, -1)) / 2
-    mt, mz, mtz = 2 * b - at(1, 0) - at(-1, 0), 2 * b - at(0, 1) - at(0, -1), (at(1, -1) + at(-1, 1) - at(1, 1) - at(-1, -1)) / 4
-    det = mt * mz - mtz**2
-    two = (mz * gt**2 - 2 * mtz * gt * gz + mt * gz**2) / (2 * jnp.where(det > 0, det, 1.0))
-    one = gt**2 / (2 * mt + (mt == 0)) + gz**2 / (2 * mz + (mz == 0))  # one angle flat: its terms vanish
-    return b + jnp.where(det > 0, two, jnp.where((mtz == 0) & (mt * mz == 0), one, 0.0))
+def _bmax(B: jax.Array, field: tuple) -> jax.Array:
+    """``max |B|`` per surface: Newton on the Fourier series ``field = (bmnc, bmns, xm, xn)`` of ``|B|`` from the largest sample
+    of ``B`` (S, T, Z) on the kernel's full-turn grid, read at the stopped root; never below the largest sample. Each step uses
+    only the directions of negative curvature of the Hessian (none along a ridge or an angle ``|B|`` does not depend on); eight
+    steps reach the peak from a sample a few cells away. The root is held fixed under differentiation: ``grad |B| = 0`` there, so
+    the derivative of the value is exact. A root that is not stationary (no peak reached from the sample) is rejected with NaN."""
+    c, s, xm, xn = field
+    S, T, Z = B.shape
+    i = jnp.argmax(B.reshape(S, -1), 1)
+    b = B.reshape(S, -1)[jnp.arange(S), i]
+    cell = jnp.array([2 * jnp.pi / T, 2 * jnp.pi / Z])
+    start = jnp.stack([i // Z, i % Z], -1) * cell  # (S, 2): (theta, zeta) of the largest sample
+
+    def series(x: jax.Array, c: jax.Array, s: jax.Array) -> tuple:
+        phase = x[:, :1] * xm - x[:, 1:] * xn
+        f, d = c * jnp.cos(phase) + s * jnp.sin(phase), s * jnp.cos(phase) - c * jnp.sin(phase)
+        k = jnp.stack([xm, -xn], -1)  # (M, 2): d phase / d (theta, zeta)
+        return f.sum(-1), d @ k, -jnp.einsum("sm,mi,mj->sij", f, k, k)
+
+    def step(x: jax.Array, _: Any) -> tuple:
+        _, g, H = series(x, *jax.lax.stop_gradient((c, s)))
+        w, V = jnp.linalg.eigh(H)  # a ridge or a field of one angle has a zero curvature: no step along it
+        down = w < -1e-9 * jnp.abs(w).max(-1, keepdims=True)
+        return x - jnp.einsum("sij,sj->si", V, jnp.where(down, jnp.einsum("sij,si->sj", V, g) / jnp.where(down, w, -1.0), 0.0)), None
+
+    root = jax.lax.stop_gradient(jax.lax.scan(step, start, None, length=8)[0])
+    value, g, _ = series(root, c, s)
+    lost = jnp.abs(jax.lax.stop_gradient(g) * cell).max(-1) > 1e-12 * b  # not a stationary point: no peak reached from the sample
+    return jnp.where(lost, jnp.nan, jnp.maximum(value, b))
 
 
 def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:
