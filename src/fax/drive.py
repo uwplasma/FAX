@@ -249,11 +249,11 @@ def pair_rates(
         imag = rate(mid, (a + 1j * b) / 2, (jnp.conj(a) + 1j * jnp.conj(b)) / 2) - mean
         coupling = real**2 + imag**2
         root = jnp.real(jnp.sqrt(((own[i] - own[j[i]]) - 1j * (w[i] - w[j[i]])) ** 2 / 4 + coupling))
-        first = i <= j[i]  # the lower index of the pair holds the larger rate
-        values = (mean + jnp.where(first, 1.0, -1.0) * root, _top(own[i], own[j[i]], real, imag), 2 * mean)
-        out.append([jnp.where(paired[i], v, alone) for v, alone in zip(values, (own[i], own[i], own[i]), strict=True)])
-    rates, top, trace = (jnp.stack(v) for v in zip(*out, strict=True))
-    return PairRates(rates, j, top, trace)
+        values = (mean + root, mean - root, _top(own[i], own[j[i]], real, imag), 2 * mean)
+        out.append([jnp.where(paired[i], v, own[i]) for v in values])
+    larger, smaller, top, trace = (jnp.stack(v) for v in zip(*out, strict=True))
+    lo = jnp.minimum(index, j)  # one evaluation per pair, its lower index: the set is the same at both members
+    return PairRates(jnp.where(index <= j, larger[lo], smaller[lo]), j, top[lo], trace[lo])
 
 
 def _top(gaa: jax.Array, gbb: jax.Array, real: jax.Array, imag: jax.Array) -> jax.Array:

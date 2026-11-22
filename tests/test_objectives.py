@@ -82,6 +82,37 @@ def test_selected_frequencies_carry_status_and_unconverged_solves_are_rejected()
     assert jnp.isfinite(rates(1e-10)).all() and jnp.isnan(rates(1e-30)).all()
 
 
+def test_cluster_drive_risk_has_the_finite_difference_derivative_near_the_exceptional_point():
+    """nfp = 2 torus with a (1, 2) harmonic of |B| (30% of the (1, 0) one): family n = 1 splits into cosine and sine sectors,
+    the nearest pair 60.6 Hz apart. The fast-ion density scale c moves the coupling across half the splitting at
+    c* = delta omega / (2 sqrt(dGamma^2 / 4 + |Gamma_ab|^2)) (every ingredient linear in c). With ``cluster=True`` the rates are
+    the eigenvalues of the projected power matrix, linear in c, so ``jax.grad`` of ``drive_risk`` at 1.001 c* equals a central
+    difference over [c*, 1.002 c*] to 1e-8 (measured 5e-13); the 2 x 2 rates miss it by 4.7% there (regression, this run)."""
+    s = (jnp.arange(24) + 0.5) / 24
+    g = fax.circular_torus(s=s, major_radius=10.0, B0=3.0, iota=1 / (1.45 + 0.1 * s), epsilon_B=0.1, nfp=2)
+    pad = lambda a, col: jnp.concatenate([a, col[:, None]], 1)  # noqa: E731
+    geo = fax.Geometry.from_arrays(
+        2,
+        s=s,
+        iota=g.iota,
+        G=g.G,
+        I=g.I,
+        xm=jnp.append(g.xm, 1.0),
+        xn=jnp.append(g.xn, 2.0),
+        bmnc=pad(g.bmnc, 0.3 * g.bmnc[:, 1]),
+        **{k: pad(getattr(g, k), 0 * s) for k in ("rmnc", "zmns", "gmnc")},
+    )
+    d = Design("", (), (), fax.mode_family(1, 6, 0), RHO, 16, dict(ntheta=16, nzeta=8, target_hz=65e3, count=2))
+    ions = lambda c: fax.FastIons(density=c * 1e17 * jnp.exp(-8 * jnp.arange(1, 17) / 17), temperature_ev=200e3)  # noqa: E731
+    rates = lambda c, **k: fax.geometry_growth_rates(geo, d, ions(c), 2, nodes=16, ntheta=16, nzeta=8, **k)  # noqa: E731
+    f, one = fax.geometry_frequencies(geo, d, 2)[0], rates(1.0, cluster=True)
+    np.testing.assert_allclose(one.sum(), rates(1.0).sum(), rtol=1e-12)  # sets of the same pair: equal traces
+    c = 2 * np.pi * abs(float(f[1] - f[0])) / float(one[0] - one[1])  # c*
+    risk = lambda x: fax.drive_risk(rates(x, cluster=True), scale=1.0)  # noqa: E731
+    fd = (risk(1.002 * c) - risk(c)) / (0.002 * c)
+    assert float(jax.grad(risk)(1.001 * c)) == pytest.approx(float(fd), rel=1e-8)
+
+
 def test_gap_closure_is_smooth_where_the_widest_gap_changes():
     """Two gaps of width 50 -/+ x kHz trade places at x = 0: the hard widest gap has a gradient jump, the softmax one none."""
     branch = lambda x: jnp.array([0.0, 1.0e4, 6.0e4 + x, 11.0e4])  # noqa: E731 - widths 1e4, 5e4 + x, 5e4 - x

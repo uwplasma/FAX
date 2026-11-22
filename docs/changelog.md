@@ -23,7 +23,11 @@ What changes for users of 1.2.0:
 - `fax.drive.pair_rates` returns `PairRates`: the two rates of a pair as a set (larger at the lower index, `partner` the
   other index), since with equal diagonal rates no rule assigns an eigenvalue to one mode, and per pair the largest
   eigenvalue of the projected power matrix (`top`) and its trace, smooth through the exceptional point where the rates
-  have a square-root branch point. `geometry_growth_rates` gives the set (`rates`).
+  have a square-root branch point; each pair is evaluated once, at its lower index. `geometry_growth_rates` gives the set
+  (`rates`), so `[:mode_count]` can now cut a pair and keep its larger rate where it kept the cut mode's own, which changes
+  `drive_risk` of such a selection (upward). `geometry_growth_rates(..., cluster=True)` gives each pair the eigenvalues of
+  its projected power matrix (`top`, then `trace - top`), continuous through the exceptional point; `top` is Lipschitz with
+  a zero subgradient where the matrix is degenerate. `examples/optimize_alfven.py` uses it.
   Travelling modes go through `fax.eigen.travelling`.
 - `mode_families` groups a real potential: one group per $|n|$ in a tokamak and one per pair $\{N, -N\}$ of
   $N = n \bmod N_{fp}$ in a stellarator, instead of one per $n$ and one per $N$.

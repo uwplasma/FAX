@@ -106,7 +106,7 @@ for case, modes_kind, drive in RUNS:
         if case == "qa":
             out["freq"] = fax.geometry_frequencies(geo, design, n_modes)[0]
         if drive:
-            out["gamma"] = fax.geometry_growth_rates(geo, design, ions, 4, ntheta=32, nzeta=32)
+            out["gamma"] = fax.geometry_growth_rates(geo, design, ions, 4, cluster=True, ntheta=32, nzeta=32)
         return out
 
     p0 = jnp.zeros(len(design.names))
