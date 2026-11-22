@@ -468,6 +468,20 @@ def test_passing_boundary_maximum_is_smooth_under_a_translation():
     assert flat[0] == 3.0 and flat[1] == pytest.approx(1.0, rel=1e-12)
     axis = fax.drive._bmax(*_field([3.0, 0.15 * np.cos(0.01)], [0.0, 0.15 * np.sin(0.01)], [0, 1], [0, 0], 64, 1))
     assert abs(float(axis[0]) - 3.15) < 1e-14  # nzeta = 1: no zeta curvature, Newton in theta alone
+    seam = [
+        fax.drive._bmax(*_field([3.0, 0.15 * np.cos(d)], [0.0, 0.15 * np.sin(d)], [0, 1], [0, 0], 64, 1))[0]
+        for d in (np.pi / 64, -np.pi / 64)
+    ]
+    assert abs(float(seam[0] - seam[1])) < 1e-14  # the tie of samples 63 and 0 wraps across the seam
+
+
+def test_passing_boundary_maximum_falls_back_to_the_largest_sample():
+    """Samples whose largest point sits where the series has only positive curvature and a nonzero slope (``B = cos theta``
+    sampled as ``cos(theta - 0.6 pi)``): Newton takes no step and the root is not stationary. The value is then the largest
+    sample (memo study_fax_design, part 4.5: fallback to the sample), not NaN."""
+    b = _field([0.0, np.cos(0.6 * np.pi)], [0.0, np.sin(0.6 * np.pi)], [0, 1], [0, 0], 10, 1)[0]
+    field = _field([0.0, 1.0], [0.0, 0.0], [0, 1], [0, 0], 10, 1)[1]
+    assert float(fax.drive._bmax(b, field)[0]) == float(jnp.max(b))
 
 
 def test_growth_rate_uses_the_refined_maximum():

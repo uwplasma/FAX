@@ -225,7 +225,8 @@ def _bmax(B: jax.Array, field: tuple) -> jax.Array:
     of ``B`` (S, T, Z) on the kernel's full-turn grid, read at the stopped root; never below the largest sample. Each step uses
     only the directions of negative curvature of the Hessian (none along a ridge or an angle ``|B|`` does not depend on); eight
     steps reach the peak from a sample a few cells away. The root is held fixed under differentiation: ``grad |B| = 0`` there, so
-    the derivative of the value is exact. A root that is not stationary (no peak reached from the sample) is rejected with NaN."""
+    the derivative of the value is exact. A root that is not stationary (no peak reached from the sample) falls back to the
+    largest sample, low by O(h^2) but safe."""
     c, s, xm, xn = field
     S, T, Z = B.shape
     i = jnp.argmax(B.reshape(S, -1), 1)
@@ -248,7 +249,7 @@ def _bmax(B: jax.Array, field: tuple) -> jax.Array:
     root = jax.lax.stop_gradient(jax.lax.scan(step, start, None, length=8)[0])
     value, g, _ = series(root, c, s)
     lost = jnp.abs(jax.lax.stop_gradient(g) * cell).max(-1) > 1e-12 * b  # not a stationary point: no peak reached from the sample
-    return jnp.where(lost, jnp.nan, jnp.maximum(value, b))
+    return jnp.where(lost, b, jnp.maximum(value, b))
 
 
 def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:
