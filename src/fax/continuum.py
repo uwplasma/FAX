@@ -67,7 +67,7 @@ def herm(a: jax.Array) -> jax.Array:
 
 def scale(z: jax.Array, r: jax.Array) -> jax.Array:
     """``z * r`` for a complex ``z`` and a real ``r``, without converting ``r`` to complex: XLA:CPU in jaxlib 0.6.x on macOS
-    arm64 segfaults compiling a complex128 array of shape ``(N >= 8, 1, ...)`` converted from a real one (``jax.jit(lambda x:
+    arm64 segfaults compiling a complex128 array of shape ``(N, 1, ...)`` (N = 24, not 7) converted from a real one (``jax.jit(lambda x:
     (x * x).astype(complex)[:, None])``), which reverse mode saves for every surface factor."""
     return jax.lax.complex(z.real * r, z.imag * r)
 
