@@ -162,7 +162,9 @@ _PAIRS = (("bmns", "bmnc"), ("rmns", "rmnc"), ("zmnc", "zmns"), ("pmnc", "pmns")
 
 
 def _breaks(name: str, get: Any, xp: Any) -> Any:
-    """Positive when the arrays break the fact ``name`` by more than ``FACT_TOL`` (``xp`` is ``np`` or ``jnp``)."""
+    """Positive when the arrays break the fact ``name`` by more than ``FACT_TOL`` (``xp`` is ``np`` or ``jnp``). A table whose
+    symmetric part is tiny or absent (``pmns`` absent, say) makes any rounding in its asymmetric part break the fact: a false
+    rejection (NaN under :func:`fact_guard`), never a silent wrong number."""
     top = lambda a: xp.max(xp.abs(xp.asarray(a, dtype=float)), initial=0.0)  # noqa: E731
     pairs = [(get(a), get(b)) for a, b in _PAIRS] if name == "stellsym" else None
     if pairs is not None:

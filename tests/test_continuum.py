@@ -336,6 +336,20 @@ def test_symmetry_facts_use_one_tolerance_and_a_wrong_traced_fact_gives_nan():
     np.testing.assert_allclose(jax.jit(sector)(1e-12), fax.continuum(build(1e-12), h, rho, 16, 8, parity=1), rtol=1e-10)
     assert np.isnan(np.asarray(jax.jit(sector)(1e-6))).all()
     assert np.isnan(np.asarray(jax.jit(jax.grad(lambda e: sector(e).sum()))(1e-6)))
+    pad = lambda a, col: jnp.concatenate([a, col[:, None]], 1)  # noqa: E731 - one more harmonic, (m, n) = (1, 1)
+    tilted = lambda e: fax.Geometry.from_arrays(  # noqa: E731 - |B| of the (1, 1) harmonic e bmnc_0: not axisymmetric
+        1,
+        **{
+            **{k: v for k, v in arrays.items() if k not in ("xm", "xn", "bmnc")},
+            **{k: pad(arrays[k], 0 * g.s) for k in ("rmnc", "zmns", "gmnc")},
+        },
+        xm=jnp.append(g.xm, 1.0),
+        xn=jnp.append(g.xn, 1.0),
+        bmnc=pad(g.bmnc, e * g.bmnc[:, 0]),
+        axisymmetric=True,
+    )
+    axi = lambda e: fax.continuum(tilted(e), h, rho, 16, 8, parity=1)  # noqa: E731
+    assert np.isfinite(np.asarray(jax.jit(axi)(1e-12))).all() and np.isnan(np.asarray(jax.jit(axi)(1e-6))).all()
 
 
 def test_one_period_average_is_refused_when_a_toroidal_number_is_not_a_multiple_of_nfp():
