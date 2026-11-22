@@ -406,7 +406,37 @@ def test_a_pair_of_sector_modes_is_driven_as_a_two_mode_ledger():
     ions = fax.FastIons(density=1e17 * jnp.exp(-8 * S40), temperature_ev=200e3)  # as in drive()
     ledger = lambda om: pair_rates(om, x, jnp.array([False, True]), tok, h, ions, RHO, **{**LOOSE, **opt})  # noqa: E731
     plus, minus = drive(tok, h, phi=x[0], omega=w, **opt), drive(tok, -h, phi=jnp.conj(x[0]), omega=w, **opt)
-    np.testing.assert_allclose(np.sort(ledger(jnp.array([w, w]))), np.sort([minus, plus]), rtol=1e-8)
+    np.testing.assert_allclose(np.sort(ledger(jnp.array([w, w])).rates), np.sort([minus, plus]), rtol=1e-8)
     far = jnp.array([w, 1.2 * w])
     diag = [rate(far[0], x[0]), rate(far[1], x[1])]
-    np.testing.assert_allclose(ledger(far), diag, rtol=1e-6)
+    np.testing.assert_allclose(np.sort(ledger(far).rates), np.sort(diag), rtol=1e-6)
+
+
+def test_a_sector_pair_is_reported_as_a_set_with_smooth_cluster_quantities():
+    """Decision memo study_fax_design, part 3: the 2 x 2 rates of a pair have a square-root branch point (exceptional point,
+    EP) where the coupling |Gamma_ab| equals half the splitting, and in a tokamak Gamma_aa = Gamma_bb, so a per-mode label is a
+    tie. The pair is reported as a set (sorted, ``rates`` descending in index order, ``partner`` the other index), with the
+    largest eigenvalue of the projected power matrix ``top = mean + sqrt((Gamma_aa - Gamma_bb)^2 / 4 + |Gamma_ab|^2)`` and the
+    trace for optimizers. The degenerate n = 6 pair with the sine mode moved by hand to put the EP at fast-ion density scale
+    c = 1: every ingredient is linear in c, so ``top`` and ``trace`` are linear and their derivatives equal central differences
+    (step 2e-3 c) to 1e-6; the larger rate's derivative misses them by more than 0.1 at c = 1.001 (memo: 0.59 at 0.99 c_EP)."""
+    from fax.drive import pair_rates
+
+    tok, h, opt = torus(), np.array([[10.0, 6.0], [11.0, 6.0]]), dict(helical=0, nzeta=32)
+    cos, sin = (fax.eigenmodes(tok, h, RHO, parity=p) for p in (1, -1))
+    k = len(cos.omega2) // 2
+    w, x = float(np.sqrt(cos.omega2[k])), jnp.stack([cos.structures[k], sin.structures[k]])
+    ions = lambda c: fax.FastIons(density=c * 1e17 * jnp.exp(-8 * S40), temperature_ev=200e3)  # noqa: E731
+    run = lambda c, om: pair_rates(om, x, jnp.array([False, True]), tok, h, ions(c), RHO, **{**LOOSE, **opt})  # noqa: E731
+    one = run(1.0, jnp.array([w, w]))
+    assert one.partner.tolist() == [1, 0] and one.rates[0] >= one.rates[1]
+    np.testing.assert_allclose(one.top, one.rates.max(), rtol=1e-8)  # degenerate: lambda_max(Gamma) is the larger rate
+    np.testing.assert_allclose(one.trace, one.rates.sum(), rtol=1e-8)
+    om = jnp.array([w, w + 2 * float(one.top[0] - one.trace[0] / 2)])  # splitting 2 |Gamma_ab|: the EP at c = 1
+    for name in ("top", "trace", "rates"):
+        f = lambda c, name=name: getattr(run(c, om), name)[0]  # noqa: E731
+        ad, fd = float(jax.grad(f)(1.001)), float((f(1.002) - f(1.0)) / 2e-3)
+        if name == "rates":
+            assert abs(ad / fd - 1) > 0.1
+        else:
+            assert ad == pytest.approx(fd, rel=1e-6)

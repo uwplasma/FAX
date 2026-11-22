@@ -20,6 +20,10 @@ What changes for users of 1.2.0:
   nearest partner of the other sector form the 2 x 2 ledger of plan 8.5 (frequencies on the diagonal, the drive matrix
   in one wave energy) and get its two rates. Far apart in frequency these are the standing-wave rates; for the LP-QA pair
   near 104.5 kHz, 1412 rad/s apart and coupled at 1.6e4 1/s, they are +15805 and -16173 1/s, the travelling waves.
+- `fax.drive.pair_rates` returns `PairRates`: the two rates of a pair as a set (larger at the lower index, `partner` the
+  other index), since with equal diagonal rates no rule assigns an eigenvalue to one mode, and per pair the largest
+  eigenvalue of the projected power matrix (`top`) and its trace, smooth through the exceptional point where the rates
+  have a square-root branch point. `geometry_growth_rates` gives the set (`rates`).
   Travelling modes go through `fax.eigen.travelling`.
 - `mode_families` groups a real potential: one group per $|n|$ in a tokamak and one per pair $\{N, -N\}$ of
   $N = n \bmod N_{fp}$ in a stellarator, instead of one per $n$ and one per $N$.

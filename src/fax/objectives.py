@@ -318,7 +318,7 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     w, x = jnp.sqrt(ev.omega2), ev.structures
     if all(sectors):
         sine = jnp.sum(x.imag**2, (1, 2)) > jnp.sum(x.real**2, (1, 2))  # a sine-sector structure is -i times real
-        rates = pair_rates(w, x, sine, geo, design.harmonics, ions, design.density, **drive)[:mode_count]
+        rates = pair_rates(w, x, sine, geo, design.harmonics, ions, design.density, **drive).rates[:mode_count]
     else:
         h, x = travelling(geo, design.harmonics, x, parity)
         rates = jnp.stack([growth_rate(w[i], x[i], geo, h, ions, design.density, **drive) for i in range(mode_count)])
