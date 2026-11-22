@@ -560,11 +560,36 @@ def test_unstable_omega2_is_signed_with_finite_gradients():
         assert jnp.isfinite(jax.jacfwd(omega2)(x)).all() and jnp.isfinite(jax.jacrev(omega2)(x)).all()
 
 
+def _lu_shapes(jaxpr):
+    """Operand shapes of every ``lu`` primitive in a jaxpr, sub-jaxprs included."""
+    shapes = []
+    for eqn in jaxpr.eqns:
+        if eqn.primitive.name == "lu":
+            shapes.append(tuple(eqn.invars[0].aval.shape))
+        for value in eqn.params.values():
+            for sub in value if isinstance(value, (tuple, list)) else (value,):
+                sub = getattr(sub, "jaxpr", sub)
+                if hasattr(sub, "eqns"):
+                    shapes += _lu_shapes(sub)
+    return shapes
+
+
+def test_targeted_eigenpairs_dense_limit_is_explicit():
+    """Without the dense fallback (the default) the zero Schur pivot of [[0, 1], [1, 0]] at target 0 is
+    reported, not solved, and its tangent is NaN; the default compiles no dense LU, the opt-in does."""
+    F, G = Blocks(jnp.zeros((2, 1, 1)), jnp.ones((1, 1, 1))), Blocks(jnp.ones((2, 1, 1)), jnp.zeros((1, 1, 1)))
+    assert not targeted_eigenpairs(F, G, 0.0, 2)[2].converged
+    assert np.isnan(jax.jacfwd(lambda a: targeted_eigenpairs(Blocks(F.diag, a * F.upper), G, 0.0, 2)[0])(1.0)).all()
+    run = lambda limit: lambda t: targeted_eigenpairs(F, G, t, 2, dense_limit=limit)[0]  # noqa: E731
+    assert (2, 2) not in [s[-2:] for s in _lu_shapes(jax.make_jaxpr(run(0))(0.0).jaxpr)]
+    assert (2, 2) in [s[-2:] for s in _lu_shapes(jax.make_jaxpr(run(2))(0.0).jaxpr)]
+
+
 def test_targeted_eigenpairs_fallback_and_tied_selection():
     """The invertible [[0, 1], [1, 0]] has a zero first Schur pivot: SOLVAX's dense fallback is
     reported in the status. Selecting one of a tied pair has no derivative; selecting the pair does."""
     F, G = Blocks(jnp.zeros((2, 1, 1)), jnp.ones((1, 1, 1))), Blocks(jnp.ones((2, 1, 1)), jnp.zeros((1, 1, 1)))
-    lam, y, status = targeted_eigenpairs(F, G, 0.0, 2)
+    lam, y, status = targeted_eigenpairs(F, G, 0.0, 2, dense_limit=2)
     np.testing.assert_allclose(lam, [-1.0, 1.0])
     assert status.fallback and status.converged and y.shape == (2, 1, 2)
     d = jnp.array([[[0.0, 0.0], [0.0, 0.0]], [[2.0, 0.5], [0.5, 1.0]], [[3.0, 0.0], [0.0, 4.0]]])

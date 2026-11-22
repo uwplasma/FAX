@@ -23,7 +23,7 @@ spectrum has a repeated eigenvalue (``eigh`` eigenvectors are undefined there); 
 ``omega^2`` stays signed (``omega^2 < 0`` is an ideal instability): ``frequencies_hz`` is the stable frequency
 (0 for ``omega^2 <= 0``) and ``growth_rate`` is ``sqrt(-omega^2)``, both with finite gradients.
 
-Targeted solves are :func:`solvax.generalized_eigenpairs` (block-Thomas shift-invert with a dense pivoted fallback and
+Targeted solves are :func:`solvax.generalized_eigenpairs` (block-Thomas shift-invert with an opt-in dense pivoted fallback and
 implicit first-order derivatives of values and vectors); FAX adds the :class:`Status` report and rejects, with a NaN
 tangent, any derivative of an unconverged solve or of a selection that splits a tied set (``gap <= 0``).
 """
@@ -254,16 +254,18 @@ def selected(converged: jax.Array, gap: jax.Array, lam: jax.Array) -> jax.Array:
 
 
 def targeted_eigenpairs(
-    F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10
+    F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10, dense_limit: int = 0
 ) -> tuple[jax.Array, jax.Array, Status]:
     """``count`` eigenpairs of ``F y = lam G y`` nearest ``target`` (ascending) by :func:`solvax.generalized_eigenpairs`.
 
     Eigenvectors have shape ``(N, H, count)`` and are ``G``-normalized; ``iters`` bounds the shift-invert
-    applications and ``tol`` is the relative residual (see :class:`Status`). First derivatives of values and
+    applications and ``tol`` is the relative residual (see :class:`Status`). ``dense_limit`` (static) is the
+    largest ``N H`` for which SOLVAX may replace a singular block pivot by a dense pivoted solve; with the
+    default 0 such a pivot is reported as an unconverged solve and no dense factorization is compiled. First derivatives of values and
     vectors are implicit; their tangents are NaN unless the solve ``converged`` and ``gap > 1e-8 max|lam|``
     (smaller gaps are ties).
     """
-    r = solvax.generalized_eigenpairs(band(F), band(G), target, count, tol, iters)
+    r = solvax.generalized_eigenpairs(band(F), band(G), target, count, tol, iters, dense_limit)
     ok = selected(r.converged, r.gap, r.values)
     status = Status(r.residuals.max(), r.orthogonality, r.iterations, r.converged, r.gap, r.fallback)
     return _certified(r.values, ok), _certified(r.vectors, ok), status
