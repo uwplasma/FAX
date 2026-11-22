@@ -412,6 +412,19 @@ def test_a_pair_of_sector_modes_is_driven_as_a_two_mode_ledger():
     np.testing.assert_allclose(np.sort(ledger(far).rates), np.sort(diag), rtol=1e-6)
 
 
+def test_cluster_top_is_lipschitz_where_the_projected_matrix_is_degenerate():
+    """``top = lambda_max`` of the Hermitian 2 x 2 equals ``eigvalsh``; at Gamma_aa = Gamma_bb, Gamma_ab = 0 (an uncoupled tokamak
+    pair) ``sqrt`` of zero gave a NaN gradient; with the double ``where`` it is the finite subgradient (1/2, 1/2, 0, 0)."""
+    from fax.drive import _top
+
+    for a, b, re, im in ((2.0, -1.0, 0.7, 0.0), (1.0, 1.0, 0.3, -0.2), (0.5, 0.1, 0.0, 0.0)):
+        want = np.linalg.eigvalsh(np.array([[a, re + 1j * im], [re - 1j * im, b]])).max()
+        assert float(_top(a, b, re, im)) == pytest.approx(want, rel=1e-14)
+    grad = jax.grad(_top, (0, 1, 2, 3))(1.0, 1.0, 0.0, 0.0)
+    np.testing.assert_allclose(grad, [0.5, 0.5, 0.0, 0.0])
+    np.testing.assert_allclose(jax.grad(_top, (0, 1, 2, 3))(1.0, 1.0, 1e-3, 0.0), [0.5, 0.5, 1.0, 0.0], rtol=1e-12)
+
+
 def test_a_sector_pair_is_reported_as_a_set_with_smooth_cluster_quantities():
     """Decision memo study_fax_design, part 3: the 2 x 2 rates of a pair have a square-root branch point (exceptional point,
     EP) where the coupling |Gamma_ab| equals half the splitting, and in a tokamak Gamma_aa = Gamma_bb, so a per-mode label is a

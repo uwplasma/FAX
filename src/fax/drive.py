@@ -207,11 +207,12 @@ def _growth_rate(
 
 
 class PairRates(NamedTuple):
-    """Rates (1/s) of sector modes driven as pairs, one entry per mode (see :func:`pair_rates`)."""
+    """Rates (1/s) of sector modes driven as pairs (see :func:`pair_rates`). Entry ``i`` of ``rates`` is a member of the set of
+    the pair that holds mode ``i``, not the rate of mode ``i``."""
 
     rates: jax.Array  # the 2 x 2 rates of each pair as a set: larger at the lower index; an unpaired mode its own rate
     partner: jax.Array  # the other mode of the pair (the mode itself when unpaired)
-    top: jax.Array  # largest eigenvalue of the projected power matrix Gamma of the pair: smooth, never below the larger rate
+    top: jax.Array  # largest eigenvalue of the projected power matrix Gamma of the pair: Lipschitz, never below the larger rate
     trace: jax.Array  # Gamma_aa + Gamma_bb of the pair (the own rate when unpaired): smooth
 
 
@@ -230,8 +231,10 @@ def pair_rates(
     as in a tokamak, no rule can assign it). Far apart in frequency they are the diagonal rates; degenerate, the rates of the two
     travelling waves. A mode without such a partner keeps its own rate. At the exceptional point (zero discriminant) the rates
     are continuous and their derivative is not finite; an optimizer takes ``top``, ``lambda_max(Gamma) = mean +
-    sqrt((Gamma_aa - Gamma_bb)^2 / 4 + |Gamma_ab|^2)``, an upper bound of the pair's energy growth rate, and ``trace``, both
-    smooth through it (plan 8.9: eigenvalues of a projected physical bilinear form)."""
+    sqrt((Gamma_aa - Gamma_bb)^2 / 4 + |Gamma_ab|^2)``, an upper bound of the pair's energy growth rate, and ``trace``: the trace
+    is smooth, ``top`` is smooth through the exceptional point and Lipschitz where the projected matrix is degenerate
+    (``Gamma_aa = Gamma_bb``, ``Gamma_ab = 0``), with a zero subgradient there (plan 8.9: eigenvalues of a projected physical
+    bilinear form)."""
     w, phi, sine = jnp.asarray(omega), jnp.asarray(phi), jnp.asarray(sine)
     rate = lambda om, plus, minus: growth_rate(om, (plus, minus), geo, harmonics, ions, mass_density, standing=True, **options)  # noqa: E731
     own = jnp.stack([rate(w[i], phi[i] / 2, jnp.conj(phi[i]) / 2) for i in range(len(w))])
@@ -244,13 +247,20 @@ def pair_rates(
         a, b, mid, mean = phi[i], phi[j[i]], (w[i] + w[j[i]]) / 2, (own[i] + own[j[i]]) / 2
         real = rate(mid, (a + b) / 2, jnp.conj(a + b) / 2) - mean
         imag = rate(mid, (a + 1j * b) / 2, (jnp.conj(a) + 1j * jnp.conj(b)) / 2) - mean
-        coupling, split = real**2 + imag**2, (own[i] - own[j[i]]) ** 2 / 4
+        coupling = real**2 + imag**2
         root = jnp.real(jnp.sqrt(((own[i] - own[j[i]]) - 1j * (w[i] - w[j[i]])) ** 2 / 4 + coupling))
         first = i <= j[i]  # the lower index of the pair holds the larger rate
-        values = (mean + jnp.where(first, 1.0, -1.0) * root, mean + jnp.sqrt(split + coupling), 2 * mean)
+        values = (mean + jnp.where(first, 1.0, -1.0) * root, _top(own[i], own[j[i]], real, imag), 2 * mean)
         out.append([jnp.where(paired[i], v, alone) for v, alone in zip(values, (own[i], own[i], own[i]), strict=True)])
     rates, top, trace = (jnp.stack(v) for v in zip(*out, strict=True))
     return PairRates(rates, j, top, trace)
+
+
+def _top(gaa: jax.Array, gbb: jax.Array, real: jax.Array, imag: jax.Array) -> jax.Array:
+    """``lambda_max`` of ``[[gaa, g], [conj(g), gbb]]``, ``g = real + i imag``; the square root has a zero subgradient where it
+    vanishes (double ``where``) instead of NaN."""
+    u = (gaa - gbb) ** 2 / 4 + real**2 + imag**2
+    return (gaa + gbb) / 2 + jnp.where(u > 0, jnp.sqrt(jnp.where(u > 0, u, 1.0)), 0.0)
 
 
 def ion_landau_damping(
