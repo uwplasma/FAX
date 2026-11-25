@@ -101,7 +101,7 @@ def global_matrices(
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
     h, project = parity_basis(geo, h, parity)
-    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity, geo.nfp)
     period = field_period(geo, nzeta)
     F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta, period), h, density, finite_beta, period)
     return jax.tree_util.tree_map(project, (F, G)) if symmetric(geo) else (F, G)
