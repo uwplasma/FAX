@@ -57,7 +57,9 @@ Release tier, to be run and recorded in the release notes before every tag (not 
    publishing (environment `pypi`). Update `version` and `date-released` in `CITATION.cff` in the same commit.
 
 CI runs the PR matrix on Python 3.10–3.13 and the vmex path, lint, coverage and docs on Python 3.12. SOLVAX comes
-from PyPI (0.36.0 or newer). Keep Python 3.10 working (the `tomli` fallback, no newer-JAX-only functions).
+from PyPI (0.36.0 or newer). Keep Python 3.10 working (the `tomli` fallback, no newer-JAX-only functions). Multiply a
+complex per-surface array by a real factor with `scale` (`src/fax/continuum.py`): XLA:CPU in jaxlib 0.6.x, the last JAX
+for Python 3.10 on macOS arm64, crashes compiling the gradient when a real `(N, 1, 1)` factor is converted to complex.
 
 The documentation builds with `sphinx-build -W -b html docs docs/_build/html`. The figures of the physics, theory and
 comparison pages come from `python docs/make_figures.py`, which writes small palette PNGs to `docs/_static`; the other
