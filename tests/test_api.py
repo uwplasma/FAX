@@ -179,6 +179,7 @@ def test_documented_transforms_and_failure_behaviour():
         ('[geometry]\nsource = "boozmn"\n', "geometry.path is required for source = 'boozmn'"),
         ("[run]\nntheta = 8\nnzeta = 4\n", "aliases the harmonics"),
         (None, "No such file"),
+        ("[modes]\nm_max = true\n", "[modes] m_max must be int"),
     ],
 )
 def test_cli_input_errors_print_one_line_and_exit_2(tmp_path, capsys, text, message):
@@ -216,3 +217,10 @@ def test_python_dash_m_fax_runs_the_command_line():
 
     done = subprocess.run([sys.executable, "-m", "fax", "run", "--help"], capture_output=True, text=True)
     assert done.returncode == 0 and "TOML" in done.stdout and "getting-started" in done.stdout
+
+
+def test_traceback_flag_works_after_the_subcommand(tmp_path):
+    case = tmp_path / "case.toml"
+    case.write_text("[run]\nbogus = 1\n")
+    with pytest.raises(ValueError, match="valid keys"):
+        main(["run", str(case), "--traceback"])

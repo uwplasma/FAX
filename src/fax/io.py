@@ -66,7 +66,7 @@ def load(case: str | Path | dict[str, Any]) -> dict[str, dict[str, Any]]:
             default = DEFAULTS[table][key]
             value = [value] if isinstance(default, list) and not isinstance(value, list) else value
             kind = (int, float) if isinstance(default, float) else type(default)
-            if default is not None and not isinstance(value, kind):
+            if default is not None and (not isinstance(value, kind) or isinstance(value, bool) != isinstance(default, bool)):
                 raise ValueError(f"[{table}] {key} must be {type(default).__name__}, got {value!r}")
             config[table][key] = value
     for table, key in (("geometry", "path"), ("run", "output")):
@@ -148,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     run_parser = sub.add_parser("run", help="run a TOML case", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     run_parser.add_argument("case")
+    run_parser.add_argument("--traceback", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     run_parser.add_argument("--plot", action="store_true", help="also write figures")
     run_parser.add_argument("--cache", nargs="?", metavar="DIR", help="persist JAX compilations in DIR (default ~/.cache/fax/jax, on)")
     run_parser.add_argument("--no-cache", action="store_true", help="do not persist JAX compilations")
@@ -158,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError) as error:  # bad TOML, key, type, value or grid; missing file
         if args.traceback:
             raise
-        parser.exit(2, f"fax: error: {error}\n")
+        parser.exit(2, f"fax: error: {error} (--traceback shows where)\n")
 
 
 def _main(args: argparse.Namespace) -> int:
