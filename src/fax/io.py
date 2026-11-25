@@ -64,7 +64,8 @@ def load(case: str | Path | dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise ValueError(f"unknown table or key in [{table}]: {bad}; valid keys: {', '.join(sorted(config.get(table, config)))}")
         for key, value in values.items():
             default = DEFAULTS[table][key]
-            value = [value] if isinstance(default, list) and not isinstance(value, list) else value
+            if isinstance(default, list):
+                value = list(value) if isinstance(value, (list, tuple)) else [value]
             kind = (int, float) if isinstance(default, float) else type(default)
             if default is not None and (not isinstance(value, kind) or isinstance(value, bool) != isinstance(default, bool)):
                 raise ValueError(f"[{table}] {key} must be {type(default).__name__}, got {value!r}")

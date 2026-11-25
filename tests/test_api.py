@@ -224,3 +224,7 @@ def test_traceback_flag_works_after_the_subcommand(tmp_path):
     case.write_text("[run]\nbogus = 1\n")
     with pytest.raises(ValueError, match="valid keys"):
         main(["run", str(case), "--traceback"])
+
+
+def test_a_mapping_case_may_give_a_tuple_where_a_list_is_expected():
+    assert fax.load({"geometry": {"surfaces": (0.9,)}})["geometry"]["surfaces"] == [0.9]
