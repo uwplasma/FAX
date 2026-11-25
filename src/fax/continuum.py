@@ -67,6 +67,13 @@ def herm(a: jax.Array) -> jax.Array:
     return jnp.conj(jnp.swapaxes(a, -1, -2))
 
 
+def scale(z: jax.Array, r: jax.Array) -> jax.Array:
+    """``z * r`` for a complex ``z`` and a real ``r``, without converting ``r`` to complex: XLA:CPU in jaxlib 0.6.x on macOS
+    arm64 segfaults compiling a complex128 array of shape ``(N, 1, ...)`` (N = 24, not 7) converted from a real one (``jax.jit(lambda x:
+    (x * x).astype(complex)[:, None])``), which reverse mode saves for every surface factor."""
+    return jax.lax.complex(z.real * r, z.imag * r)
+
+
 @jax.jit
 def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Solve ``K x = lam M x`` for Hermitian ``K`` and positive-definite ``M`` (batched).
@@ -234,8 +241,9 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
     is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
     earlier are dropped. A traced geometry uses the static facts of :class:`fax.Geometry`; an unknown one counts as
-    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether different
-    ``|n|`` couple, so such a list is refused rather than solved with a shape that differs from the eager one.
+    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether any
+    ``n != 0`` couples to ``-n``, so such a list is refused rather than solved with a shape that differs from the eager one
+    (state ``axisymmetric`` to :meth:`fax.Geometry.from_arrays`).
     ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
     """
     h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
@@ -244,8 +252,8 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
         return [Block(h, None if parity == "single" else parity, every, np.ones(len(h)))]
     keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()], dtype=int)
     axisym = _fact(geo, "axisymmetric")
-    if axisym is None and geo.nfp == 1 and len(np.unique(np.abs(h[keep, 1]))) > 1:  # n and n' couple only without axisymmetry
-        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host")
+    if axisym is None and geo.nfp == 1 and np.any(h[keep, 1] != 0):  # (m, n) and (-m', -n') couple only without axisymmetry
+        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host or state it")
     key = (lambda n: n) if axisym else (lambda n: n % geo.nfp)
     blocks = []
     for F in dict.fromkeys(key(h[keep, 1])):
@@ -296,8 +304,8 @@ def _continuum_matrices(geo: Geometry, grid: Any, h: jax.Array, density: Any, pr
     weight = jnp.abs(grid.jacobian) * grid.grad_s2 / grid.B**2
     a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / (geo.G + geo.iota * geo.I)[:, None]  # k_j = a_j |B|
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
-    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h, period)
-    M = rho[:, None, None] * angle_mean(weight, h, period)
+    K = scale(angle_mean(weight * grid.B**4 / MU0, h, period), a[:, :, None] * a[:, None, :])
+    M = angle_mean(rho[:, None, None] * weight, h, period)
     if pressure is not None:
         pp, pc, cc, mc = sound_coupling(geo, h, rho, pressure, gamma, grid, period)
         Z = jnp.zeros_like(mc)
