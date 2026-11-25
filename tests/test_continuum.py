@@ -1,5 +1,6 @@
 """Continuum gates: analytic uniform-field limit, STELLGAP CTOK parity, gap formulas."""
 
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -415,6 +416,21 @@ def test_default_basis_is_both_signs_split_into_independent_blocks(asymmetric_to
     assert jax.grad(loss)(0.1) == pytest.approx((loss(0.1 + 1e-5) - loss(0.1 - 1e-5)) / 2e-5, rel=1e-5)
 
 
+def test_unknown_axisymmetry_refuses_a_toroidal_family_under_jit():
+    """With nfp = 1 axisymmetry decides whether (m, n) couples to (-m', -n) through (m + m', 2 n): eagerly a tokamak n = 1 list
+    is one block of 4 branches, a three-dimensional field would give 8. A geometry rebuilt inside ``jax.jit`` does not know
+    which, so the default basis is refused (as for several |n|); an n = 0 list does not depend on it and is solved."""
+    geo, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1), 3.4e-8
+    for h, ok in ((fax.mode_family(1, 3), False), (fax.mode_family(0, 3, 1), True)):
+        f = lambda b, h=h: fax.continuum(replace(geo, bmnc=b), h, rho, 16, 8)  # noqa: E731
+        if ok:
+            np.testing.assert_allclose(jax.jit(f)(geo.bmnc), f(geo.bmnc), rtol=1e-12)
+        else:
+            assert f(geo.bmnc).shape == (9, 4)
+            with pytest.raises(ValueError, match="axisymmetry"):
+                jax.jit(f)(geo.bmnc)
+
+
 def test_count_above_the_basis_size_raises():
     """A targeted solve asks for at most as many modes as the basis has unknowns (surfaces x harmonics, summed over the
     blocks), as for one pencil: 9 x 4 in each sector of the n = 0 family, 9 x 4 for the single n = 1 family."""
@@ -483,10 +499,22 @@ def test_default_angle_grid_is_the_smallest_unaliased_one():
     grid gives the same branches, and the 1.2.0 default of 32 is refused."""
     geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 5), iota=0.4, epsilon_B=0.1), fax.mode_family(0, 20, 1), 3.4e-8
     np.testing.assert_allclose(fax.continuum(geo, h, rho), fax.continuum(geo, h, rho, 82, 32), rtol=1e-12)
-    with pytest.raises(ValueError, match="ntheta=32 aliases"):
-        fax.continuum(geo, h, rho, 32)
+    for f in (lambda g: fax.continuum(g, h, rho, 32), jax.jit(lambda g: fax.continuum(g, h, rho, 32))):
+        with pytest.raises(ValueError, match="ntheta=32 aliases"):  # also under jax.jit
+            f(geo)
     modes = fax.eigenmodes(geo, h, rho)
     np.testing.assert_allclose(modes.omega2, fax.eigenmodes(geo, h, rho, ntheta=82, nzeta=32).omega2, rtol=1e-10)
+
+
+def test_default_toroidal_grid_holds_whole_field_periods(monkeypatch):
+    """The default ``nzeta`` is a multiple of ``nfp``, so the averages run over one field period (``field_period``): at
+    ``nfp = 5`` the 32-point minimum becomes 40, 8 points per period, and the result is that of the explicit 40-point grid."""
+    geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 5), iota=0.4, epsilon_B=0.1, nfp=5), fax.mode_family(5, 4, 1), 3.4e-8
+    module, seen = sys.modules["fax.continuum"], []
+    sample = module.surface_grid
+    monkeypatch.setattr(module, "surface_grid", lambda g, t, z, p=1: seen.append((t, z, p)) or sample(g, t, z, p))
+    np.testing.assert_allclose(fax.continuum(geo, h, rho), fax.continuum(geo, h, rho, 32, 40), rtol=1e-12)
+    assert seen[0] == (32, 40, 5)
 
 
 def test_continuum_vanishes_at_the_rational_surface_and_families_match_a_full_torus_solve():

@@ -67,6 +67,13 @@ def herm(a: jax.Array) -> jax.Array:
     return jnp.conj(jnp.swapaxes(a, -1, -2))
 
 
+def scale(z: jax.Array, r: jax.Array) -> jax.Array:
+    """``z * r`` for a complex ``z`` and a real ``r``, without converting ``r`` to complex: XLA:CPU in jaxlib 0.6.x on macOS
+    arm64 segfaults compiling a complex128 array of shape ``(N, 1, ...)`` (N = 24, not 7) converted from a real one (``jax.jit(lambda x:
+    (x * x).astype(complex)[:, None])``), which reverse mode saves for every surface factor."""
+    return jax.lax.complex(z.real * r, z.imag * r)
+
+
 @jax.jit
 def generalized_eigh(K: jax.Array, M: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Solve ``K x = lam M x`` for Hermitian ``K`` and positive-definite ``M`` (batched).
@@ -150,9 +157,7 @@ def continuum_matrices(
     check_modes(geo, h, density)
     h, project = parity_basis(geo, h, parity)
     check(jnp.all((geo.G + geo.iota * geo.I) != 0), "G + iota I must be nonzero on every surface")
-    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity)
-    for name, n, col in (("ntheta", ntheta, 0), ("nzeta", nzeta, 1)):
-        check(2 * (h[:, col].max() - h[:, col].min()) < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{'mn'[col]}|")
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity, geo.nfp, strict=True)
     period = field_period(geo, nzeta)
     grid = surface_grid(geo, ntheta, nzeta, period)
     if pressure is not None:
@@ -195,16 +200,25 @@ def parity_basis(geo: Geometry, h: jax.Array, parity: int | str | None) -> tuple
     return jnp.concatenate([h, -h]), project
 
 
-def grid_size(harmonics: Any, ntheta: int | None, nzeta: int | None, parity: Any = None) -> tuple[int, int]:
+def grid_size(
+    harmonics: Any, ntheta: int | None, nzeta: int | None, parity: Any = None, nfp: int = 1, strict: bool = False
+) -> tuple[int, int]:
     """``(ntheta, nzeta)``, each ``None`` replaced by ``max(32, 2 max|d| + 2)`` over the differences of the assembled harmonics:
     the smallest even grid that does not alias them (a parity sector holds ``(m, n)`` and ``(-m, -n)``, so it needs twice the
-    span). Traced harmonics give 32."""
+    span). A default ``nzeta`` is rounded up to a multiple of ``nfp``, so the averages run over one field period. Traced
+    harmonics give 32 (rounded the same way). With ``strict``, a grid that aliases the harmonics raises ``ValueError``,
+    also under ``jax.jit`` (the harmonics are host data)."""
+    step = int(np.lcm(2, nfp))
+    up = lambda n: -(-n // step) * step  # noqa: E731
     if isinstance(harmonics, jax.core.Tracer):
-        return ntheta or 32, nzeta or 32
+        return ntheta or 32, nzeta or up(32)
     h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
     h = np.concatenate([h, -h]) if parity in (1, -1) else h
-    auto = lambda c: max(32, int(2 * np.ptp(h[:, c]) + 2) if len(h) else 32)  # noqa: E731
-    return (auto(0) if ntheta is None else ntheta), (auto(1) if nzeta is None else nzeta)
+    span = np.ptp(h, 0) if len(h) else np.zeros(2)
+    sizes = max(32, int(2 * span[0] + 2)) if ntheta is None else ntheta, up(max(32, int(2 * span[1] + 2))) if nzeta is None else nzeta
+    for name, n, d, k in zip(("ntheta", "nzeta"), sizes, span, "mn", strict=True):
+        check(not strict or 2 * d < n, f"{name}={n} aliases the harmonics: need {name} > 2 max|d{k}|")
+    return sizes
 
 
 class Block(NamedTuple):
@@ -229,8 +243,9 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
     is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
     earlier are dropped. A traced geometry uses the static facts of :class:`fax.Geometry`; an unknown one counts as
-    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether different
-    ``|n|`` couple, so such a list is refused rather than solved with a shape that differs from the eager one.
+    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether any
+    ``n != 0`` couples to ``-n``, so such a list is refused rather than solved with a shape that differs from the eager one
+    (state ``axisymmetric`` to :meth:`fax.Geometry.from_arrays`).
     ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
     """
     h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
@@ -239,8 +254,8 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
         return [Block(h, None if parity == "single" else parity, every, np.ones(len(h)))]
     keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()], dtype=int)
     axisym = _fact(geo, "axisymmetric")
-    if axisym is None and geo.nfp == 1 and len(np.unique(np.abs(h[keep, 1]))) > 1:  # n and n' couple only without axisymmetry
-        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host")
+    if axisym is None and geo.nfp == 1 and np.any(h[keep, 1] != 0):  # (m, n) and (-m', -n') couple only without axisymmetry
+        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host or state it")
     key = (lambda n: n) if axisym else (lambda n: n % geo.nfp)
     blocks = []
     for F in dict.fromkeys(key(h[keep, 1])):
@@ -291,8 +306,8 @@ def _continuum_matrices(geo: Geometry, grid: Any, h: jax.Array, density: Any, pr
     weight = jnp.abs(grid.jacobian) * grid.grad_s2 / grid.B**2
     a = (h[:, 1] - h[:, 0] * geo.iota[:, None]) / (geo.G + geo.iota * geo.I)[:, None]  # k_j = a_j |B|
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
-    K = a[:, :, None] * a[:, None, :] * angle_mean(weight * grid.B**4 / MU0, h, period)
-    M = rho[:, None, None] * angle_mean(weight, h, period)
+    K = scale(angle_mean(weight * grid.B**4 / MU0, h, period), a[:, :, None] * a[:, None, :])
+    M = angle_mean(rho[:, None, None] * weight, h, period)
     if pressure is not None:
         pp, pc, cc, mc = sound_coupling(geo, h, rho, pressure, gamma, grid, period)
         Z = jnp.zeros_like(mc)

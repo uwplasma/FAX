@@ -20,7 +20,7 @@ jobs:
   smoke:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Lint and smoke
-    runs-on: [self-hosted, uwplasma-cpu]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || fromJSON('["self-hosted","uwplasma-cpu"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -37,7 +37,7 @@ jobs:
   tests:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Python ${{ matrix.python-version }}
-    runs-on: [self-hosted, uwplasma-cpu]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || fromJSON('["self-hosted","uwplasma-cpu"]') }}
     timeout-minutes: 60
     env:
       JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
@@ -68,7 +68,7 @@ jobs:
   python-311-main-only:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     name: Python 3.11
-    runs-on: [self-hosted, uwplasma-cpu]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - run: echo "Python 3.11 is tested on main and nightly"
@@ -77,7 +77,7 @@ jobs:
     # Skipped on pull requests (a skipped required check passes); main and nightly run it.
     if: github.event_name != 'pull_request'
     name: Python 3.10, JAX 0.4.38
-    runs-on: [self-hosted, uwplasma-cpu]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || fromJSON('["self-hosted","uwplasma-cpu"]') }}
     timeout-minutes: 60
     env:
       JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
@@ -102,7 +102,7 @@ jobs:
   wheel:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Installed wheel
-    runs-on: [self-hosted, uwplasma-cpu]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || fromJSON('["self-hosted","uwplasma-cpu"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -130,7 +130,7 @@ jobs:
   full:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Lint, vmex path and coverage
-    runs-on: [self-hosted, uwplasma-cpu]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || fromJSON('["self-hosted","uwplasma-cpu"]') }}
     timeout-minutes: 90
     env:
       JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax-cache
