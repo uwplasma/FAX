@@ -1,6 +1,7 @@
 """Drive screen, objectives, TOML runs, CLI and plotting."""
 
 import importlib
+import subprocess
 import sys
 import types
 from dataclasses import replace
@@ -137,6 +138,22 @@ def test_toml_reader_falls_back_to_tomli(monkeypatch):
         assert importlib.reload(fax.io).tomllib is fallback
     assert importlib.reload(fax.io).tomllib is not fallback
     assert fax.load({})["modes"]["n"] == [1]
+
+
+def test_reverse_mode_compiles_in_a_fresh_process():
+    """Gradients of the assembled operator and of a one-harmonic continuum, in a subprocess since a compiler crash
+    (XLA:CPU in jaxlib 0.6.x on macOS segfaulted on real per-surface factors converted to complex) kills the interpreter."""
+    code = (
+        "import jax, fax; geo = lambda b: fax.circular_torus(B0=b); rho = fax.mass_density(2e19, 1.0)\n"
+        "f = lambda r: fax.frequency_hz(geo(3.0), fax.mode_family(1, 3), r, ntheta=8, nzeta=4)\n"
+        "c = lambda b: fax.continuum(geo(b), [[1.0, 1.0]], rho).sum()\n"
+        "print(f(rho), jax.grad(f)(rho) * rho, c(3.0), jax.grad(c)(3.0) * 3.0)"
+    )
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr[-2000:]
+    f, rho_df, c, b_dc = map(float, run.stdout.split())
+    assert f > 0 and rho_df == pytest.approx(-f / 2, rel=1e-6)  # f ~ rho^-1/2
+    assert c > 0 and b_dc == pytest.approx(c, rel=1e-10)  # f ~ B0
 
 
 def test_documented_transforms_and_failure_behaviour():
