@@ -168,3 +168,51 @@ def test_documented_transforms_and_failure_behaviour():
     assert fax.mode_family(np.int64(2), 4).shape == (5, 2)
     with pytest.raises(ValueError, match="m_max"):
         fax.mode_family(1, 2, 3)
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("[run\n", "Expected ']'"),
+        ("[run]\nbogus = 1\n", "valid keys: count, ntheta"),
+        ('[modes]\nm_max = "x"\n', "[modes] m_max must be int"),
+        ('[geometry]\nsource = "boozmn"\n', "geometry.path is required for source = 'boozmn'"),
+        ("[run]\nntheta = 8\nnzeta = 4\n", "aliases the harmonics"),
+        (None, "No such file"),
+    ],
+)
+def test_cli_input_errors_print_one_line_and_exit_2(tmp_path, capsys, text, message):
+    case = tmp_path / "case.toml"
+    if text is not None:
+        case.write_text(text)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["run", str(case), "--no-cache"])
+    err = capsys.readouterr().err
+    assert exit_info.value.code == 2 and err.startswith("fax: error: ") and message in err and "Traceback" not in err
+
+
+def test_toml_scalars_become_lists_and_the_grid_follows_the_api_default(monkeypatch):
+    assert fax.load({"modes": {"n": 2}, "plasma": {"density_profile": 1.0}})["modes"]["n"] == [2]
+    seen = {}
+    monkeypatch.setattr(fax.io, "continuum", lambda *args, **kwargs: seen.update(args=args, kwargs=kwargs) or np.ones((9, 2)))
+    fax.run({"modes": {"n": 2, "m_max": 1}}, save=False)
+    assert len(seen["args"]) == 3 and seen["kwargs"] == {}  # no grid passed: the API chooses it
+
+
+def test_every_default_is_documented_in_the_docstring_and_the_reference():
+    import re
+
+    page = (Path(__file__).parents[1] / "docs" / "getting-started.md").read_text()
+    for table, keys in fax.io.DEFAULTS.items():
+        entry = next(part for part in re.split(r"\n\s*(?=\[)", fax.io.__doc__) if part.startswith(f"[{table}]"))
+        assert set(re.findall(r"(\w+) =", entry.split("\n\n")[0])) == set(keys), table
+        section = page.split(f"### `[{table}]`")[1].split("###")[0]
+        rows = re.findall(r"^\| ((?:`\w+`(?:, )?)+) \|", section, re.M)
+        assert {key for row in rows for key in re.findall(r"\w+", row)} == set(keys), table
+
+
+def test_python_dash_m_fax_runs_the_command_line():
+    import subprocess
+
+    done = subprocess.run([sys.executable, "-m", "fax", "run", "--help"], capture_output=True, text=True)
+    assert done.returncode == 0 and "TOML" in done.stdout and "getting-started" in done.stdout
