@@ -439,8 +439,9 @@ def test_default_angle_grid_is_the_smallest_unaliased_one():
     grid gives the same branches, and the 1.2.0 default of 32 is refused."""
     geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 5), iota=0.4, epsilon_B=0.1), fax.mode_family(0, 20, 1), 3.4e-8
     np.testing.assert_allclose(fax.continuum(geo, h, rho), fax.continuum(geo, h, rho, 82, 32), rtol=1e-12)
-    with pytest.raises(ValueError, match="ntheta=32 aliases"):
-        fax.continuum(geo, h, rho, 32)
+    for f in (lambda g: fax.continuum(g, h, rho, 32), jax.jit(lambda g: fax.continuum(g, h, rho, 32))):
+        with pytest.raises(ValueError, match="ntheta=32 aliases"):  # also under jax.jit
+            f(geo)
     modes = fax.eigenmodes(geo, h, rho)
     np.testing.assert_allclose(modes.omega2, fax.eigenmodes(geo, h, rho, ntheta=82, nzeta=32).omega2, rtol=1e-10)
 
