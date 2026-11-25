@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 import solvax
 
-from .continuum import MU0, angle_mean, block_matrices, check_modes, generalized_eigh, on_rows, parity_basis, spectral_blocks
+from .continuum import MU0, angle_mean, block_matrices, check_modes, generalized_eigh, on_rows, parity_basis, scale, spectral_blocks
 from .geometry import Geometry, _d_ds, check, field_period, surface_grid, symmetric
 
 
@@ -215,8 +215,9 @@ def _assemble(s: jax.Array, flat: jax.Array, A: jax.Array, Bm: jax.Array, D: jax
     A, Bm, D = (0.5 * (ext(a)[1:] + ext(a)[:-1]) for a in (A, Bm, D))
     h = jnp.diff(jnp.concatenate([jnp.zeros(1), s, jnp.ones(1)]))[:, None, None]
     BH = jnp.conj(jnp.swapaxes(Bm, -1, -2))
-    LL, RR = A / h - 0.5 * (Bm + BH) + D * h / 3, A / h + 0.5 * (Bm + BH) + D * h / 3
-    LR, RL = -A / h - 0.5 * (Bm - BH) + D * h / 6, -A / h + 0.5 * (Bm - BH) + D * h / 6
+    A, D = scale(A, 1 / h), scale(D, h)
+    LL, RR = A - 0.5 * (Bm + BH) + D / 3, A + 0.5 * (Bm + BH) + D / 3
+    LR, RL = -A - 0.5 * (Bm - BH) + D / 6, -A + 0.5 * (Bm - BH) + D / 6
     P = jnp.diag(flat.astype(float))
     diag = (RR[:-1] + LL[1:]).at[0].add(RL[0] @ P + P @ LR[0] + P @ LL[0] @ P)
     return Blocks(diag, LR[1:-1])
