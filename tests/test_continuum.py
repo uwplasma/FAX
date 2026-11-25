@@ -370,6 +370,21 @@ def test_default_basis_is_both_signs_split_into_independent_blocks(asymmetric_to
     assert jax.grad(loss)(0.1) == pytest.approx((loss(0.1 + 1e-5) - loss(0.1 - 1e-5)) / 2e-5, rel=1e-5)
 
 
+def test_unknown_axisymmetry_refuses_a_toroidal_family_under_jit():
+    """With nfp = 1 axisymmetry decides whether (m, n) couples to (-m', -n) through (m + m', 2 n): eagerly a tokamak n = 1 list
+    is one block of 4 branches, a three-dimensional field would give 8. A geometry rebuilt inside ``jax.jit`` does not know
+    which, so the default basis is refused (as for several |n|); an n = 0 list does not depend on it and is solved."""
+    geo, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.1), 3.4e-8
+    for h, ok in ((fax.mode_family(1, 3), False), (fax.mode_family(0, 3, 1), True)):
+        f = lambda b, h=h: fax.continuum(replace(geo, bmnc=b), h, rho, 16, 8)  # noqa: E731
+        if ok:
+            np.testing.assert_allclose(jax.jit(f)(geo.bmnc), f(geo.bmnc), rtol=1e-12)
+        else:
+            assert f(geo.bmnc).shape == (9, 4)
+            with pytest.raises(ValueError, match="axisymmetry"):
+                jax.jit(f)(geo.bmnc)
+
+
 def test_count_above_the_basis_size_raises():
     """A targeted solve asks for at most as many modes as the basis has unknowns (surfaces x harmonics, summed over the
     blocks), as for one pencil: 9 x 4 in each sector of the n = 0 family, 9 x 4 for the single n = 1 family."""

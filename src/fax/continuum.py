@@ -213,8 +213,9 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
     geometry is stellarator symmetric, and one complex pencil on both signs otherwise. A list holding one family ``N != -N``
     is its own block, so the result equals the single-sign one (any tokamak ``n != 0``). Rows whose negative is listed
     earlier are dropped. A traced geometry uses the static facts of :class:`fax.Geometry`; an unknown one counts as
-    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether different
-    ``|n|`` couple, so such a list is refused rather than solved with a shape that differs from the eager one.
+    asymmetric and, for ``nfp > 1``, not axisymmetric. With ``nfp = 1`` unknown axisymmetry would decide whether any
+    ``n != 0`` couples to ``-n``, so such a list is refused rather than solved with a shape that differs from the eager one
+    (state ``axisymmetric`` to :meth:`fax.Geometry.from_arrays`).
     ``parity="single"`` is the list as given; ``1`` or ``-1`` one sector of it.
     """
     h = np.asarray(harmonics, dtype=float).reshape(-1, 2)
@@ -223,8 +224,8 @@ def spectral_blocks(geo: Geometry, harmonics: Any, parity: int | str | None = No
         return [Block(h, None if parity == "single" else parity, every, np.ones(len(h)))]
     keep = np.array([i for i in every if not (h[:i] == -h[i]).all(1).any()], dtype=int)
     axisym = _fact(geo, "axisymmetric")
-    if axisym is None and geo.nfp == 1 and len(np.unique(np.abs(h[keep, 1]))) > 1:  # n and n' couple only without axisymmetry
-        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host")
+    if axisym is None and geo.nfp == 1 and np.any(h[keep, 1] != 0):  # (m, n) and (-m', -n') couple only without axisymmetry
+        raise ValueError("the axisymmetry of this traced geometry is unknown and decides which n couple: build it on the host or state it")
     key = (lambda n: n) if axisym else (lambda n: n % geo.nfp)
     blocks = []
     for F in dict.fromkeys(key(h[keep, 1])):
