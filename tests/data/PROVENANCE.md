@@ -10,6 +10,7 @@ generation commands, not fixtures, and are not hashed.
 |---|---|---|---|
 | `tests/data/boozmn_ctok.nc` | 574896 | `63d3005cb8796ac64698405ea485b422faf6fc1224bdc84411a7d8584ec43403` | CTOK |
 | `tests/data/stellgap_ctok_continuum.npz` | 21569 | `ff131c776a595c4830eecf7bfbd72b483e305c1e857b9dfa859fc545c12c1f60` | CTOK |
+| `tests/data/stellgap_ctok_edge_continuum.npz` | 21563 | `1f0bc91964c695c65857fb3fd7cafd898c98b82bfaadd754f367a4243fad6bcc` | CTOK, outer half surface restored |
 | `tests/data/ae3d_ctok_modes.npz` | 35148 | `b6e54a1d79e73bf614b0663f4bf4ecbd1559d2918549051274c1982b43359155` | CTOK |
 | `tests/data/ae3d_v31_ctok.npz` | 324628 | `b3a06d3ab198f6fa77870cec47ed1ee577ab309d15016df4bdd632fdb4debcb1` | AE3D v31 |
 | `tests/data/ae3d_v31_instrumentation.patch` | 4714 | `cf0f8ac9488742bc6f60d38c42c0d6454a690b6a3d7a6c19961ee3f67a5fc5f3` | AE3D v31 |
@@ -41,11 +42,27 @@ generation commands, not fixtures, and are not hashed.
 | URL | <https://github.com/ORNL-Fusion/Stellgap>, <https://github.com/ORNL-Fusion/AE3D> |
 | License | MIT, (c) 2016 ORNL-Fusion (both repositories) |
 | Upstream hashes | `stellgap_test_problem.tar.gz` `d37a2e3654dce36baffff8958a9d33920e1feb3fdb66885187b525cfadc823bb`; `stellgap_test_problem_answers.tar.gz` `b8900c5fa4e2ee3eab6ca668d96465f8205e0b240d5917a9ac32029d6a2885ec` (member `alfven_post`); `ae3d_test_problem.tar.gz` `7d106e2482e8584bf12b07c614da2b405cfbc0122b4825f8116b732999dde8ce`; `ae3d_test_problem_answers.tar.gz` `e3d8a3f3b5e5bffb5e57d44750d0de36652ff691a810a0a24988d64a19efaa2a` (member `egn_mode_asci.dat`) |
-| Model switches | `n = 2`, `m = 0..12`, deuterium 1e19 m^-3 (`rho = 3.34e-8` kg/m^3, flat); AE3D without pressure and `J_par` terms (`finite_beta=False`) |
+| Model switches | `n = 2`, `m = 0..12`, deuterium 1e19 m^-3, flat; AE3D without pressure and `J_par` terms (`finite_beta=False`). Mass: STELLGAP `ion_to_proton_mass = 2` with `mass_proton = 1.67e-27` kg (`rho = 3.34e-8` kg/m^3); the FAX tests use `2 x 1.00727647` u (`rho = 3.345243858603886e-8` kg/m^3), 0.16% higher, 0.08% lower in frequency |
 | Units, normalization | kHz, `f = omega / 2 pi`. STELLGAP file: 296 surfaces `s = 0.02 ... 0.9869` and the 13 sorted branches in kHz (STELLGAP labels shifted one cell, see `test_stellgap_ctok_parity`). AE3D file: 7 eigenvalues in kHz (337.92, 343.65, 384.13, 685.59, 703.30, 738.23, 741.21) and their eigenvectors on the 99-point full mesh, 13 harmonics, float32, amplitude normalized to 1 at the peak (arbitrary scale) |
 | Resolution | 99 radial nodes, 13 harmonics |
 | Generation command | `boozmn_ctok.nc` is the packet file, byte for byte (identical in both packets). The two `.npz` are rebuilt bit for bit: unpack the `*_answers.tar.gz` packets and run `python tests/data/make_ctok_fixtures.py STELLGAP_ANSWERS AE3D_ANSWERS OUT_DIR` (the 7 modes are the 0-based eigenvalue indices listed in the script) |
-| Pinned by, tolerance | `tests/test_continuum.py::test_stellgap_ctok_parity` (mean and p95 relative error 7e-3), `tests/test_eigen.py::test_ae3d_ctok_parity` (6 modes within 1.5%, overlap > 0.9; the TAE is the unresolved discrepancy of `docs/validation.md`) |
+| Edge | `boozmn_ctok.nc` holds Boozer coefficients on `jlist = 2..100` of `ns_b = 101`: the outer half surface is absent and `read_boozmn` warns. STELLGAP's metric builder (`metric_element_create_ver8.46.f`, lines 9-17) then averages the last half surface with zeros, so `stellgap_ctok_continuum.npz` is wrong at the edge: FAX differs from it by 5.20% at `s = 0.965` and 16.45% at `s = 0.975`. It is kept to show this; `stellgap_ctok_edge_continuum.npz` below is the reference |
+| Pinned by, tolerance | `tests/test_continuum.py::test_archived_stellgap_ctok_fails_at_the_edge_without_the_outer_half_surface` (the two edge errors to 1%), `tests/test_eigen.py::test_ae3d_ctok_parity` (6 modes within 1.5%, overlap > 0.9; the TAE is the unresolved discrepancy of `docs/validation.md`) |
+
+## `stellgap_ctok_edge_continuum.npz`: STELLGAP CTOK with the outer half surface restored
+
+| Item | Value |
+|---|---|
+| Identifier | The STELLGAP CTOK problem above, rerun on a `boozmn_ctok.nc` completed with half surface `j = 101` |
+| URL | <https://github.com/ORNL-Fusion/Stellgap>, <https://github.com/hiddensymmetries/booz_xform>, <https://github.com/PrincetonUniversity/STELLOPT> |
+| License | MIT (STELLGAP, booz_xform); STELLOPT LIBSTELL, used only to build the metric builder, is not redistributed |
+| Inputs | `stellgap_test_problem.tar.gz` (hash above): `boozmn_ctok.nc` (`63d3005c...3403`, the fixture above), `wout_ctok.nc` `729434ddaa48b8b6098f553d8629a6e96ffb600af3e64775770a2efae94a20bb`, `plasma.dat`, `fourier.dat` |
+| Pins | STELLGAP `9be3aa959bb36bd8c47e8598b6ed283e57a45336` (`stellgap_serial_ver5.f`, `post_process.f`, `metric_element_create_ver8.46.f`); C++ booz_xform `03fa6456711f2b7bb45cadea796494a1c82ebb37` (tree `60c684093316dbd22eadc6a3b70201cf66d53397`); STELLOPT `c761def7d7ba6038840a77da6d4c18a503686778` (14 LIBSTELL sources listed in the script) |
+| Model switches | As above. C++ `booz_xform` on `wout_ctok.nc` with `mboz = 48`, `nboz = 1`, all 100 half surfaces; only its final coefficient row (`bmnc_b rmnc_b zmns_b pmns_b gmn_b`) is appended, the 99 packet rows and the 101-point profiles are kept (the WOUT lacks `chi`). On the 99 common rows the C++ transform equals the packet to relative L2 4.08e-15, 3.40e-15, 2.49e-15, 2.61e-15, 2.99e-15 |
+| Units, normalization | As `stellgap_ctok_continuum.npz`: 296 surfaces `s = 0.02 ... 0.9869` (STELLGAP labels), 13 sorted branches in kHz, same mass convention |
+| Resolution | `xstgap 99 300`, the packet's 80 x 80 metric grid |
+| Generation command | `python tests/data/make_stellgap_ctok_edge.py STELLGAP BOOZ_XFORM STELLOPT OUT_DIR` with git clones holding the pins; writes `OUT_DIR/stellgap_ctok_edge_continuum.npz`, bit for bit this file. Built on macOS with GNU Fortran 16.2.0 (STELLGAP), MPICH `mpif90` on GNU Fortran 13.4.0 (metric builder), Apple clang 15.0.0, NetCDF 4.10.1 and NetCDF-Fortran 4.6.4. An independent rebuild by the same procedure on GNU Fortran 15.2 gives the same per-surface FAX errors to 7e-16, and a classic Fortran BOOZ_XFORM on all 100 half surfaces gives the same STELLGAP frequencies at printed precision |
+| Pinned by, tolerance | `tests/test_continuum.py::test_stellgap_ctok_parity`: maximum < 1%, mean < 0.5% over 97 surfaces (measured 0.70% at `s = 0.975`, 0.42%, 95th percentile 0.67%); the archived reference agrees with it to 1e-6 for `s < 0.85` |
 
 ## `ae3d_v31_ctok.npz`, `ae3d_v31_instrumentation.patch`: pinned AE3D v31 blocks
 
