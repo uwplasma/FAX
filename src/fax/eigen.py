@@ -23,7 +23,7 @@ spectrum has a repeated eigenvalue (``eigh`` eigenvectors are undefined there); 
 ``omega^2`` stays signed (``omega^2 < 0`` is an ideal instability): ``frequencies_hz`` is the stable frequency
 (0 for ``omega^2 <= 0``) and ``growth_rate`` is ``sqrt(-omega^2)``, both with finite gradients.
 
-Targeted solves are :func:`solvax.generalized_eigenpairs` (block-Thomas shift-invert with a dense pivoted fallback and
+Targeted solves are :func:`solvax.generalized_eigenpairs` (block-Thomas shift-invert with an opt-in dense pivoted fallback and
 implicit first-order derivatives of values and vectors); FAX adds the :class:`Status` report and rejects, with a NaN
 tangent, any derivative of an unconverged solve or of a selection that splits a tied set (``gap <= 0``).
 """
@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 import solvax
 
-from .continuum import MU0, angle_mean, check_modes, generalized_eigh
+from .continuum import MU0, angle_mean, check_modes, generalized_eigh, scale
 from .geometry import Geometry, _d_ds, check, surface_grid
 
 
@@ -203,8 +203,9 @@ def _assemble(s: jax.Array, flat: jax.Array, A: jax.Array, Bm: jax.Array, D: jax
     A, Bm, D = (0.5 * (ext(a)[1:] + ext(a)[:-1]) for a in (A, Bm, D))
     h = jnp.diff(jnp.concatenate([jnp.zeros(1), s, jnp.ones(1)]))[:, None, None]
     BH = jnp.conj(jnp.swapaxes(Bm, -1, -2))
-    LL, RR = A / h - 0.5 * (Bm + BH) + D * h / 3, A / h + 0.5 * (Bm + BH) + D * h / 3
-    LR, RL = -A / h - 0.5 * (Bm - BH) + D * h / 6, -A / h + 0.5 * (Bm - BH) + D * h / 6
+    A, D = scale(A, 1 / h), scale(D, h)
+    LL, RR = A - 0.5 * (Bm + BH) + D / 3, A + 0.5 * (Bm + BH) + D / 3
+    LR, RL = -A - 0.5 * (Bm - BH) + D / 6, -A + 0.5 * (Bm - BH) + D / 6
     P = jnp.diag(flat.astype(float))
     diag = (RR[:-1] + LL[1:]).at[0].add(RL[0] @ P + P @ LR[0] + P @ LL[0] @ P)
     return Blocks(diag, LR[1:-1])
@@ -243,8 +244,8 @@ def _certified_jvp(primals: tuple, tangents: tuple) -> tuple:
 
 
 def split_solver(options: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Split ``options`` into the targeted-solve keys (``count``, ``iters``, ``tol``) and the rest (grid sizes, ``finite_beta``)."""
-    solver = {key: options[key] for key in ("count", "iters", "tol") if key in options}
+    """Split ``options`` into the targeted-solve keys (``count``, ``iters``, ``tol``, ``dense_limit``) and the rest."""
+    solver = {key: options[key] for key in ("count", "iters", "tol", "dense_limit") if key in options}
     return solver, {key: value for key, value in options.items() if key not in solver}
 
 
@@ -254,24 +255,28 @@ def selected(converged: jax.Array, gap: jax.Array, lam: jax.Array) -> jax.Array:
 
 
 def targeted_eigenpairs(
-    F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10
+    F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10, dense_limit: int = 0
 ) -> tuple[jax.Array, jax.Array, Status]:
     """``count`` eigenpairs of ``F y = lam G y`` nearest ``target`` (ascending) by :func:`solvax.generalized_eigenpairs`.
 
     Eigenvectors have shape ``(N, H, count)`` and are ``G``-normalized; ``iters`` bounds the shift-invert
-    applications and ``tol`` is the relative residual (see :class:`Status`). First derivatives of values and
+    applications and ``tol`` is the relative residual (see :class:`Status`). ``dense_limit`` (static) is the
+    largest ``N H`` for which SOLVAX may replace a singular block pivot by a dense pivoted solve; with the
+    default 0 such a pivot is reported as an unconverged solve and no dense factorization is compiled. First derivatives of values and
     vectors are implicit; their tangents are NaN unless the solve ``converged`` and ``gap > 1e-8 max|lam|``
     (smaller gaps are ties).
     """
-    r = solvax.generalized_eigenpairs(band(F), band(G), target, count, tol, iters)
+    r = solvax.generalized_eigenpairs(band(F), band(G), target, count, tol, iters, dense_limit)
     ok = selected(r.converged, r.gap, r.values)
     status = Status(r.residuals.max(), r.orthogonality, r.iterations, r.converged, r.gap, r.fallback)
     return _certified(r.values, ok), _certified(r.vectors, ok), status
 
 
-def targeted_eigenvalues(F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10) -> jax.Array:
+def targeted_eigenvalues(
+    F: Blocks, G: Blocks, target: Any, count: int = 8, iters: int = 100, tol: float = 1e-10, dense_limit: int = 0
+) -> jax.Array:
     """Differentiable eigenvalues of :func:`targeted_eigenpairs`, all NaN unless the solve ``converged``."""
-    lam, _, status = targeted_eigenpairs(F, G, target, count, iters, tol)
+    lam, _, status = targeted_eigenpairs(F, G, target, count, iters, tol, dense_limit)
     return lam + jnp.where(status.converged, 0.0, jnp.nan)  # a sum, so the (NaN) tangent is kept
 
 
@@ -344,11 +349,13 @@ def eigenmodes(
     count: int = 8,
     iters: int = 100,
     tol: float = 1e-10,
+    dense_limit: int = 0,
     **grid: Any,
 ) -> Eigenmodes:
     """Global eigenmodes: all of them densely, or ``count`` nearest ``target_hz`` by :func:`targeted_eigenpairs`.
 
-    ``grid`` (``ntheta``, ``nzeta``) is passed to :func:`global_matrices`. ``status`` reports the solve
+    ``grid`` (``ntheta``, ``nzeta``) is passed to :func:`global_matrices`; ``dense_limit`` to
+    :func:`targeted_eigenpairs`. ``status`` reports the solve
     (``iterations`` is 0 for the dense solve); unlike :func:`frequency_hz`, the modes are returned even if not ``converged``.
     """
     check(target_hz is None or (jnp.isfinite(target_hz) & (target_hz > 0)), "target_hz must be finite and positive")
@@ -359,7 +366,7 @@ def eigenmodes(
         omega2, x = generalized_eigh(K, M)
         status, x = _dense_status(K, M, omega2, x, tol), jnp.swapaxes(x, 0, 1).reshape(-1, N, H)
     else:
-        omega2, y, status = targeted_eigenpairs(F, G, (2 * jnp.pi * target_hz) ** 2, count, iters, tol)
+        omega2, y, status = targeted_eigenpairs(F, G, (2 * jnp.pi * target_hz) ** 2, count, iters, tol, dense_limit)
         x = jnp.moveaxis(y, -1, 0)
     return Eigenmodes(geo.s, omega2, _hz(omega2), x, _growth(omega2), status)
 
