@@ -259,6 +259,15 @@ def test_symmetric_geometry_is_solved_in_real_arithmetic(asymmetric_torus):
         np.testing.assert_allclose(modes(geo, **target), jax.jit(lambda g, t=target: modes(g, **t))(geo), rtol=1e-11)
 
 
+def test_parity_sectors_refuse_a_traced_geometry():
+    """Symmetry is read from host zeros, so a traced geometry counts as asymmetric and a parity sector is refused."""
+    geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.05), fax.mode_family(1, 3), 3.4e-8
+    assert fax.continuum(geo, h, rho, 16, 8, parity=1).shape == (9, 4)
+    for f in (lambda g: fax.continuum(g, h, rho, 16, 8, parity=1), lambda g: global_matrices(g, h, rho, 16, 8, parity=-1)):
+        with pytest.raises(ValueError, match="stellarator-symmetric"):
+            jax.jit(f)(geo)
+
+
 def test_booz_xform_output_dictionary_matches_the_file_reader():
     """The traceable converter reads ``gmn_b`` when ``gmnc_b`` is absent and prefers ``gmnc_b`` when both are given."""
     from netCDF4 import Dataset
