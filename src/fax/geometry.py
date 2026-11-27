@@ -10,7 +10,7 @@ tabulated in ``docs/theory.md``, section 1.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple
