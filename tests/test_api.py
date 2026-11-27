@@ -1,6 +1,7 @@
 """Drive screen, objectives, TOML runs, CLI and plotting."""
 
 import importlib
+import subprocess
 import sys
 import types
 from dataclasses import replace
@@ -139,6 +140,22 @@ def test_toml_reader_falls_back_to_tomli(monkeypatch):
     assert fax.load({})["modes"]["n"] == [1]
 
 
+def test_reverse_mode_compiles_in_a_fresh_process():
+    """Gradients of the assembled operator and of a one-harmonic continuum, in a subprocess since a compiler crash
+    (XLA:CPU in jaxlib 0.6.x on macOS segfaulted on real per-surface factors converted to complex) kills the interpreter."""
+    code = (
+        "import jax, fax; geo = lambda b: fax.circular_torus(B0=b); rho = fax.mass_density(2e19, 1.0)\n"
+        "f = lambda r: fax.frequency_hz(geo(3.0), fax.mode_family(1, 3), r, ntheta=8, nzeta=4)\n"
+        "c = lambda b: fax.continuum(geo(b), [[1.0, 1.0]], rho).sum()\n"
+        "print(f(rho), jax.grad(f)(rho) * rho, c(3.0), jax.grad(c)(3.0) * 3.0)"
+    )
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr[-2000:]
+    f, rho_df, c, b_dc = map(float, run.stdout.split())
+    assert f > 0 and rho_df == pytest.approx(-f / 2, rel=1e-6)  # f ~ rho^-1/2
+    assert c > 0 and b_dc == pytest.approx(c, rel=1e-10)  # f ~ B0
+
+
 def test_documented_transforms_and_failure_behaviour():
     """The derivative contract of ``docs/api.md``: jit, vmap, NaN on an unconverged solve, NaN propagation and ``kind`` validation."""
     s = (jnp.arange(24) + 0.5) / 24
@@ -168,3 +185,63 @@ def test_documented_transforms_and_failure_behaviour():
     assert fax.mode_family(np.int64(2), 4).shape == (5, 2)
     with pytest.raises(ValueError, match="m_max"):
         fax.mode_family(1, 2, 3)
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("[run\n", "Expected ']'"),
+        ("[run]\nbogus = 1\n", "valid keys: count, ntheta"),
+        ('[modes]\nm_max = "x"\n', "[modes] m_max must be int"),
+        ('[geometry]\nsource = "boozmn"\n', "geometry.path is required for source = 'boozmn'"),
+        ("[run]\nntheta = 8\nnzeta = 4\n", "aliases the harmonics"),
+        (None, "No such file"),
+        ("[modes]\nm_max = true\n", "[modes] m_max must be int"),
+    ],
+)
+def test_cli_input_errors_print_one_line_and_exit_2(tmp_path, capsys, text, message):
+    case = tmp_path / "case.toml"
+    if text is not None:
+        case.write_text(text)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["run", str(case), "--no-cache"])
+    err = capsys.readouterr().err
+    assert exit_info.value.code == 2 and err.startswith("fax: error: ") and message in err and "Traceback" not in err
+
+
+def test_toml_scalars_become_lists_and_the_grid_follows_the_api_default(monkeypatch):
+    assert fax.load({"modes": {"n": 2}, "plasma": {"density_profile": 1.0}})["modes"]["n"] == [2]
+    seen = {}
+    monkeypatch.setattr(fax.io, "continuum", lambda *args, **kwargs: seen.update(args=args, kwargs=kwargs) or np.ones((9, 2)))
+    fax.run({"modes": {"n": 2, "m_max": 1}}, save=False)
+    assert len(seen["args"]) == 3 and seen["kwargs"] == {}  # no grid passed: the API chooses it
+
+
+def test_every_default_is_documented_in_the_docstring_and_the_reference():
+    import re
+
+    page = (Path(__file__).parents[1] / "docs" / "getting-started.md").read_text()
+    for table, keys in fax.io.DEFAULTS.items():
+        entry = next(part for part in re.split(r"\n\s*(?=\[)", fax.io.__doc__) if part.startswith(f"[{table}]"))
+        assert set(re.findall(r"(\w+) =", entry.split("\n\n")[0])) == set(keys), table
+        section = page.split(f"### `[{table}]`")[1].split("###")[0]
+        rows = re.findall(r"^\| ((?:`\w+`(?:, )?)+) \|", section, re.M)
+        assert {key for row in rows for key in re.findall(r"\w+", row)} == set(keys), table
+
+
+def test_python_dash_m_fax_runs_the_command_line():
+    import subprocess
+
+    done = subprocess.run([sys.executable, "-m", "fax", "run", "--help"], capture_output=True, text=True)
+    assert done.returncode == 0 and "TOML" in done.stdout and "getting-started" in done.stdout
+
+
+def test_traceback_flag_works_after_the_subcommand(tmp_path):
+    case = tmp_path / "case.toml"
+    case.write_text("[run]\nbogus = 1\n")
+    with pytest.raises(ValueError, match="valid keys"):
+        main(["run", str(case), "--traceback"])
+
+
+def test_a_mapping_case_may_give_a_tuple_where_a_list_is_expected():
+    assert fax.load({"geometry": {"surfaces": (0.9,)}})["geometry"]["surfaces"] == [0.9]
