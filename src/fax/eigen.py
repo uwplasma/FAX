@@ -39,7 +39,7 @@ import numpy as np
 import solvax
 
 from .continuum import MU0, angle_mean, check_modes, generalized_eigh, parity_basis, scale
-from .geometry import Geometry, _d_ds, check, surface_grid, symmetric
+from .geometry import Geometry, _d_ds, check, field_period, surface_grid, symmetric
 
 
 class Blocks(NamedTuple):
@@ -100,22 +100,23 @@ def global_matrices(
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
     h, project = parity_basis(geo, h, parity)
-    F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta), h, density, finite_beta)
+    period = field_period(geo, nzeta)
+    F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta, period), h, density, finite_beta, period)
     return jax.tree_util.tree_map(project, (F, G)) if symmetric(geo) else (F, G)
 
 
-@partial(jax.jit, static_argnums=4)
-def _global_matrices(geo: Geometry, g: Any, h: jax.Array, density: Any, finite_beta: bool) -> tuple[Blocks, Blocks]:
+@partial(jax.jit, static_argnums=(4, 5))
+def _global_matrices(geo: Geometry, g: Any, h: jax.Array, density: Any, finite_beta: bool, period: int) -> tuple[Blocks, Blocks]:
     D, (iota_s, D_s) = geo.G + geo.iota * geo.I, _d_ds(jnp.stack([geo.iota, geo.G + geo.iota * geo.I], 1), geo.s).T
     inertia, bending = _modes(g, geo.iota, iota_s, D, D_s, h)
     r = lambda a: a[:, None, None, None]  # noqa: E731 - per-surface value -> (S, 1, T, Z)
     rho = jnp.broadcast_to(jnp.asarray(density, dtype=float), geo.s.shape)
     volume = jnp.abs(g.sqrt_g)
     pairs = ((volume, bending), (r(MU0 * rho)[:, 0] * volume / g.B**2, inertia))
-    F, G = (_assemble(geo.s, h[:, 0] == 0, *_coefficients(h, g.metric, w, x)) for w, x in pairs)
+    F, G = (_assemble(geo.s, h[:, 0] == 0, *_coefficients(h, g.metric, w, x, period=period)) for w, x in pairs)
     if not finite_beta:
         return F, G
-    p_s, B_s, sigma = equilibrium_currents(geo, g)
+    p_s, B_s, sigma = equilibrium_currents(geo, g, period)
     Bc = jnp.stack([B_s, *(jnp.broadcast_to(r(a)[:, 0], B_s.shape) for a in (geo.I, geo.G))], -1)  # (B_s, I, G)
     eps = jnp.array([[[0, 0, 0], [0, 0, 1], [0, -1, 0]], [[0, 0, -1], [0, 0, 0], [1, 0, 0]], [[0, 1, 0], [-1, 0, 0], [0, 0, 0]]])
     cross = jnp.einsum("ijk,...k->...ij", eps, Bc)  # a.cross.c = Bc.(a x c)
@@ -129,7 +130,7 @@ def _global_matrices(geo: Geometry, g: Any, h: jax.Array, density: Any, finite_b
         (outer, -2 * r(p_s)[:, 0] * volume / (g.B**4 * g.sqrt_g**2), inertia, inertia),
     )
     for tensor, w, x, y in terms:
-        F = jax.tree_util.tree_map(jnp.add, F, _assemble(geo.s, h[:, 0] == 0, *_coefficients(h, tensor, w, x, y)))
+        F = jax.tree_util.tree_map(jnp.add, F, _assemble(geo.s, h[:, 0] == 0, *_coefficients(h, tensor, w, x, y, period)))
     return F, G
 
 
@@ -154,21 +155,21 @@ def _modes(g: Any, iota: jax.Array, iota_s: jax.Array, D: jax.Array, D_s: jax.Ar
     return inertia, bending
 
 
-def equilibrium_currents(geo: Geometry, g: Any) -> tuple[jax.Array, jax.Array, jax.Array]:
+def equilibrium_currents(geo: Geometry, g: Any, period: int = 1) -> tuple[jax.Array, jax.Array, jax.Array]:
     """``mu0 dp/ds``, covariant ``B_s`` and ``sigma = mu0 J.B / B^2`` from Boozer force balance.
 
     The radial force balance ``(i d_theta + d_zeta) B_s = G' + iota I' + mu0 p' (G + iota I) / B^2``
     fixes ``mu0 p'`` by solvability (its surface average) and ``B_s`` (Pfirsch-Schlueter) by
     inverting ``i (iota m + n)`` in Fourier space, skipping resonant harmonics. Then
     ``sigma = [I (d_zeta B_s - G') - G (d_theta B_s - I')] / (sqrt(g) B^2)``. ``g`` is a
-    :class:`~fax.geometry.SurfaceGrid` of ``geo``.
+    :class:`~fax.geometry.SurfaceGrid` of ``geo`` sampled on one ``2 pi / period`` sector.
     """
     r = lambda a: a[:, None, None]  # noqa: E731
     I_s, G_s = _d_ds(jnp.stack([geo.I, geo.G], 1), geo.s).T
     w, rhs = 1 / g.B**2, G_s + geo.iota * I_s
     p_s = -rhs / ((geo.G + geo.iota * geo.I) * w.mean((1, 2)))
     T, Z = w.shape[1:]
-    k, l = jnp.fft.fftfreq(T, 1 / T)[:, None], jnp.fft.fftfreq(Z, 1 / Z)[None]
+    k, l = jnp.fft.fftfreq(T, 1 / T)[:, None], period * jnp.fft.fftfreq(Z, 1 / Z)[None]  # Z points of one 2 pi / period sector
     res = r(geo.iota) * k + l
     hat = jnp.fft.fft2(r(rhs) * (1 - w / w.mean((1, 2), keepdims=True))) / jnp.where(jnp.abs(res) > 1e-8, 1j * res, jnp.inf)
     B_s, Bt, Bz = (jnp.fft.ifft2(a * hat).real for a in (1, 1j * k, 1j * l))
@@ -189,7 +190,7 @@ def force_balance_residual(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> 
     return jnp.sqrt(((B_s - embedded) ** 2).mean((1, 2)) / (g.B**2).mean((1, 2)))
 
 
-def _coefficients(h: jax.Array, tensor: jax.Array, w: jax.Array, X: Any, Y: Any = None) -> tuple[jax.Array, ...]:
+def _coefficients(h: jax.Array, tensor: jax.Array, w: jax.Array, X: Any, Y: Any = None, period: int = 1) -> tuple[jax.Array, ...]:
     """Hermitian parts of the surface averages ``<w X_a* . tensor . Y_b>`` of :func:`_modes` pairs for the ``f' f'``, ``f' f`` and
     ``f f`` products, shape ``(S, H, H)``; ``Y = X`` (a symmetric ``tensor``) by default. With ``X = e_a sum_p q_p phi_p`` this is
     ``sum_pq conj(q_p(a)) q_q(b) <conj(e_a) e_b psi_pq>``, ``psi_pq = w phi_p . tensor . phi_q``: one DFT per pair."""
@@ -202,7 +203,7 @@ def _coefficients(h: jax.Array, tensor: jax.Array, w: jax.Array, X: Any, Y: Any 
         back[qi, pi] = back[pi, qi]
     v = jnp.sum((tensor * w[..., None, None])[:, None] * py[:, :, :, :, None, :], -1)  # tensor . phi_q, shape (S, Q, T, Z, 3)
     psi = jnp.sum(px[:, :, None] * v[:, None], -1)[:, pi, qi]  # one product per pair
-    mean = angle_mean(psi, h)[:, back]  # (S, P, Q, H, H)
+    mean = angle_mean(psi, h, period)[:, back]  # (S, P, Q, H, H)
     A, C, Cp, D = (jnp.einsum("sip,sjq,spqij->sij", jnp.conj(qx[a]), qy[b], mean) for a, b in ((0, 0), (0, 1), (1, 0), (1, 1)))
     H = lambda a: jnp.conj(jnp.swapaxes(a, -1, -2))  # noqa: E731
     return 0.5 * (A + H(A)), 0.5 * (C + H(Cp)), 0.5 * (D + H(D))

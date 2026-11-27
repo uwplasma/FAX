@@ -279,24 +279,38 @@ def synthesize(cos: Any, sin: Any, xm: Any, xn: Any, theta: Any, zeta: Any) -> t
     return f, ft, fz
 
 
-def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32) -> SurfaceGrid:
+def surface_grid(geo: Geometry, ntheta: int = 32, nzeta: int = 32, period: int = 1) -> SurfaceGrid:
     """Sample ``|B|``, its derivatives, the Boozer Jacobian and the metric on every surface.
 
     The covariant basis ``r_s, r_theta, r_zeta`` comes from the cylindrical
     embedding ``(R, phi = zeta + p, Z)``; ``g^ij`` is the inverse of
     ``g_ij = r_i . r_j``. Radial derivatives of the harmonics use second-order
     finite differences in ``s``. Compiled once per geometry shape and grid size.
+    ``zeta`` covers one toroidal turn with ``nzeta`` points, or with ``period`` (a divisor of ``nzeta``) only its first
+    ``nzeta / period`` points: the same averages for integrands of period ``2 pi / period`` (``field_period``).
     """
     check(jnp.all(jnp.diff(geo.s) > 0) & (geo.s.shape[0] >= 3), "geometry.s must be increasing with at least 3 surfaces")
-    grid = _surface_grid(geo, ntheta, nzeta)
+    grid = _surface_grid(geo, ntheta, nzeta, period)
     check(jnp.all(grid.B > 0), "|B| must be positive on every surface")
     return grid
 
 
-@partial(jax.jit, static_argnums=(1, 2))
-def _surface_grid(geo: Geometry, ntheta: int, nzeta: int) -> SurfaceGrid:
-    # uniform periodic grid; zeta covers one full toroidal turn
-    theta, zeta = jnp.meshgrid(2.0 * jnp.pi * jnp.arange(ntheta) / ntheta, 2.0 * jnp.pi * jnp.arange(nzeta) / nzeta, indexing="ij")
+def field_period(geo: Geometry, nzeta: int) -> int:
+    """``nfp`` when ``nzeta`` points over a turn are ``nfp`` copies of one field period, else 1.
+
+    Every ``xn`` must be a multiple of ``nfp``: the host raises ``ValueError`` otherwise; a traced ``xn`` cannot be checked,
+    so it gets the full turn (1).
+    """
+    if isinstance(geo.xn, jax.core.Tracer):
+        return 1
+    check(not np.any(np.asarray(geo.xn) % geo.nfp), f"every toroidal number xn must be a multiple of nfp={geo.nfp}")
+    return geo.nfp if nzeta % geo.nfp == 0 else 1
+
+
+@partial(jax.jit, static_argnums=(1, 2, 3))
+def _surface_grid(geo: Geometry, ntheta: int, nzeta: int, period: int) -> SurfaceGrid:
+    # uniform periodic grid; zeta covers one full toroidal turn, or its first sector of 2 pi / period
+    theta, zeta = jnp.meshgrid(2 * jnp.pi * jnp.arange(ntheta) / ntheta, 2 * jnp.pi * jnp.arange(nzeta // period) / nzeta, indexing="ij")
     ds = lambda a: _d_ds(a, geo.s)
     B, Bt, Bz = synthesize(geo.bmnc, geo.bmns, geo.xm, geo.xn, theta, zeta)
     Bs = synthesize(ds(geo.bmnc), ds(geo.bmns), geo.xm, geo.xn, theta, zeta)[0]
