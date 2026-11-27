@@ -1,12 +1,16 @@
 """TOML cases, the :func:`run` driver, and the ``fax`` command line.
 
-A case file has four tables (every key is optional except ``geometry.source``)::
+A case file has four tables; every key is optional and takes the default shown (``path`` is required for files)::
 
-    [geometry]  source = "boozmn" | "wout" | "vmec" | "circular", path, mboz, nboz, surfaces, ns, ftol, max_iter
-    [modes]     n = [2], m_max = 12, m_min = 0
-    [plasma]    density = 1e19 (ions/m^3), ion_mass = 2.0 (amu)
-    [run]       task = "continuum" | "eigenmodes", output, ntheta, nzeta (0: the smallest unaliased grid), target_khz (0: all
-                modes), count, parity = "auto" (both signs of every harmonic) | "single" (the list as given) | 1 | -1
+    [geometry]  source = "circular" | "boozmn" | "wout" | "vmec", path = none, mboz = 8, nboz = 8,
+                surfaces = [0.1, ..., 0.9], ns = none, ftol = 1e-12, max_iter = 5000
+    [modes]     n = [1], m_max = 8, m_min = 0
+    [plasma]    density = 1e19 (ions/m^3), ion_mass = 1.0 (amu), density_profile = [1.0] (polynomial in s)
+    [run]       task = "continuum" | "eigenmodes", output = "outputs", ntheta = none, nzeta = none (none: the API
+                default grid), target_khz = 0 (0: all modes), count = 8, parity = none
+                (none: both signs of every harmonic) | "single" (the list as given) | 1 | -1
+
+A scalar is accepted where a list is expected. The full reference: docs/getting-started.md, "TOML reference".
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "modes": {"n": [1], "m_max": 8, "m_min": 0},
     "plasma": {"density": 1.0e19, "ion_mass": 1.0, "density_profile": [1.0]},
-    "run": {"task": "continuum", "output": "outputs", "ntheta": 0, "nzeta": 0, "target_khz": 0.0, "count": 8, "parity": "auto"},
+    "run": {"task": "continuum", "output": "outputs", "ntheta": None, "nzeta": None, "target_khz": 0.0, "count": 8, "parity": None},
 }
 
 
@@ -58,8 +62,18 @@ def load(case: str | Path | dict[str, Any]) -> dict[str, dict[str, Any]]:
     for table, values in case.items():
         bad = sorted(set(values) - set(config.get(table, {}))) if isinstance(values, dict) else [table]
         if bad or table not in config:
-            raise ValueError(f"unknown table or key in [{table}]: {bad}")
-        config[table].update(values)
+            raise ValueError(f"unknown table or key in [{table}]: {bad}; valid keys: {', '.join(sorted(config.get(table, config)))}")
+        for key, value in values.items():
+            default = DEFAULTS[table][key]
+            if isinstance(default, list):
+                value = list(value) if isinstance(value, (list, tuple)) else [value]
+            kind = (int, float) if isinstance(default, float) else type(default)
+            if default is not None and (not isinstance(value, kind) or isinstance(value, bool) != isinstance(default, bool)):
+                raise ValueError(f"[{table}] {key} must be {type(default).__name__}, got {value!r}")
+            config[table][key] = value
+    parity = config["run"]["parity"]
+    if parity not in (None, "single") and (type(parity) is not int or parity not in (1, -1)):
+        raise ValueError(f'[run] parity must be "single", 1 or -1, got {parity!r}')
     for table, key in (("geometry", "path"), ("run", "output")):
         if config[table][key] is not None:
             config[table][key] = str((root / Path(config[table][key]).expanduser()).resolve())
@@ -78,6 +92,8 @@ def geometry(config: dict[str, dict[str, Any]]) -> Geometry:
     }
     if g["source"] not in sources:
         raise ValueError(f"geometry.source must be one of {sorted(sources)}")
+    if g["source"] != "circular" and g["path"] is None:
+        raise ValueError(f"geometry.path is required for source = {g['source']!r}")
     return sources[g["source"]]()
 
 
@@ -88,9 +104,9 @@ def run(case: str | Path | dict[str, Any], *, save: bool = True) -> dict[str, An
     geo = geometry(config)
     harmonics = mode_family(tuple(m["n"]), m["m_max"], m["m_min"])
     p = config["plasma"]
+    grid = {key: r[key] for key in ("ntheta", "nzeta", "parity") if r[key] is not None}
     rho = mass_density(p["density"] * np.polyval(p["density_profile"][::-1], np.asarray(geo.s)), p["ion_mass"])
     out: dict[str, Any] = {"s": geo.s, "iota": geo.iota, "harmonics": harmonics}
-    grid = {key: r[key] or None for key in ("ntheta", "nzeta")} | {"parity": None if r["parity"] == "auto" else r["parity"]}
     if r["task"] == "continuum":
         f = continuum(geo, harmonics, rho, **grid)
         center, width = gaps(f)
@@ -132,15 +148,26 @@ def enable_cache(path: str | Path | None = None) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     """``fax run case.toml [--plot]`` and ``fax plot outputs/case``."""
-    parser = argparse.ArgumentParser(prog="fax", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="fax", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--traceback", action="store_true", help="show the Python traceback of an input error")
     sub = parser.add_subparsers(dest="command", required=True)
-    run_parser = sub.add_parser("run", help="run a TOML case")
+    run_parser = sub.add_parser("run", help="run a TOML case", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     run_parser.add_argument("case")
+    run_parser.add_argument("--traceback", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     run_parser.add_argument("--plot", action="store_true", help="also write figures")
     run_parser.add_argument("--cache", nargs="?", metavar="DIR", help="persist JAX compilations in DIR (default ~/.cache/fax/jax, on)")
     run_parser.add_argument("--no-cache", action="store_true", help="do not persist JAX compilations")
     sub.add_parser("plot", help="plot a results folder").add_argument("folder")
     args = parser.parse_args(argv)
+    try:
+        return _main(args)
+    except (ValueError, OSError) as error:  # bad TOML, key, type, value or grid; missing file
+        if args.traceback:
+            raise
+        parser.exit(2, f"fax: error: {error} (--traceback shows where)\n")
+
+
+def _main(args: argparse.Namespace) -> int:
     if args.command == "run":
         if not args.no_cache:
             enable_cache(args.cache)

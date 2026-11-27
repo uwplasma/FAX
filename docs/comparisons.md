@@ -60,7 +60,8 @@ CAS3D-K point is one minus the ratio 0.59.*
 ### Continuum against STELLGAP
 
 For the STELLGAP test problem (circular tokamak, $n_s = 101$, $n = 2$, $m = 0..12$) the 13 branches on 97 surfaces differ from
-the vendored STELLGAP output by a mean of 6.3e-3 and a 95th percentile of 6.6e-3, with a test gate of 7e-3. STELLGAP labels
+STELLGAP rerun with the outer Boozer half surface restored by a mean of 4.2e-3 and a maximum of 7.0e-3, with gates of 5e-3 and
+1e-2; the packet's STELLGAP output, built without that surface, is 16.4% off at $s = 0.975$. STELLGAP labels
 its full-mesh surface $k$ as $k/(n_s-1)$, and the test shifts its labels by one cell; a scan of the offset has its minimum
 there. On the precise-QA equilibrium of Knyazev et al. (2026) the mean is 3.0e-3 over 98 surfaces and 162 branches, with a
 gate of 4e-3. The branches bracketing the gap of the archived global mode agree to 1.0% and 3.0%. This comparison is matched.
@@ -68,7 +69,8 @@ gate of 4e-3. The branches bracketing the gap of the archived global mode agree 
 ### Global modes against AE3D on CTOK
 
 With the same `boozmn` file averaged to AE3D's 99-point mesh, six global modes (343.6 to 741.2 kHz) agree with AE3D within
-1.4%, matched by eigenvector overlap above 0.9, against a gate of 1.5%. The leading matrix blocks and the operator continuum
+0.19 to 1.35%, matched by nodal eigenvector cosine above 0.9, against a gate of 1.5%. In the inertia norm two of them (738.2 and
+741.2 kHz) have cosines of 0.37 and 0.08 and are frequency matches only ({doc}`validation`). The leading matrix blocks and the operator continuum
 agree within 1%.
 
 The TAE at 337.9 kHz is not reproduced, and this one is open. A pinned build of AE3D v31, which reproduces its shipped
