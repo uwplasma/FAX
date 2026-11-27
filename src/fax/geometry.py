@@ -92,6 +92,16 @@ def check(ok: Any, message: str) -> None:
         raise ValueError(message)
 
 
+def symmetric(geo: Geometry) -> bool:
+    """Whether ``geo`` is stellarator symmetric: every asymmetric harmonic is a host zero (traced arrays count as asymmetric).
+
+    Then ``(theta, zeta) -> (-theta, -zeta)`` commutes with the operators, so their matrices in ``exp(i(m theta - n zeta))``
+    are real and the eigenproblems are solved in real arithmetic.
+    """
+    arrays = (geo.bmns, geo.rmns, geo.zmnc, geo.pmnc, geo.gmns)
+    return not any(isinstance(a, jax.core.Tracer) for a in arrays) and not any(np.any(np.asarray(a)) for a in arrays)
+
+
 _ARRAYS = ("s", "xm", "xn", *_MODES, "iota", "G", "I")
 jax.tree_util.register_dataclass(Geometry, data_fields=list(_ARRAYS), meta_fields=["nfp"])
 

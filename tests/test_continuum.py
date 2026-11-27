@@ -14,6 +14,7 @@ from netCDF4 import Dataset
 import fax
 from fax.continuum import MU0, generalized_eigh
 from fax.eigen import dense, global_matrices
+from fax.geometry import symmetric
 
 DATA = Path(__file__).parent / "data"
 
@@ -241,6 +242,21 @@ def test_asymmetric_geometry_is_hermitian_finite_and_differentiable(asymmetric_t
         fd = (loss(shifted(name, direction, 1e-4)) - loss(shifted(name, direction, -1e-4))) / 2e-4
         assert abs(fd) > 1e-8, name
         assert float(jnp.sum(getattr(grads, name) * direction)) == pytest.approx(float(fd), rel=1e-5), name
+
+
+def test_symmetric_geometry_is_solved_in_real_arithmetic(asymmetric_torus):
+    """A host stellarator-symmetric geometry gives real matrices and the eigenvalues of the complex path (traced geometry)."""
+    geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 9), iota=0.4, epsilon_B=0.05), fax.mode_family(1, 3), 3.4e-8
+    assert symmetric(geo) and not symmetric(asymmetric_torus)
+    for f in (lambda g: fax.continuum_matrices(g, h, rho, 16, 8), lambda g: global_matrices(g, h, rho, 16, 8)):
+        real, traced = f(geo), jax.jit(f)(geo)
+        assert all(a.dtype == jnp.float64 for a in jax.tree_util.tree_leaves(real))
+        assert all(a.dtype == jnp.complex128 for a in jax.tree_util.tree_leaves(traced))
+        for a, b in zip(jax.tree_util.tree_leaves(real), jax.tree_util.tree_leaves(traced), strict=True):
+            np.testing.assert_allclose(a, b, atol=1e-15 * float(jnp.abs(b).max()))
+    modes = lambda g, **t: fax.eigenmodes(g, h, rho, ntheta=16, nzeta=8, **t).omega2  # noqa: E731
+    for target in ({}, {"target_hz": 2e5, "count": 4}):
+        np.testing.assert_allclose(modes(geo, **target), jax.jit(lambda g, t=target: modes(g, **t))(geo), rtol=1e-11)
 
 
 def test_booz_xform_output_dictionary_matches_the_file_reader():
