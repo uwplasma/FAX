@@ -829,8 +829,9 @@ $\int F\,d^3v = 1$ with that edge: integrating by parts, the constant is
 $3/(4\pi\,\mathbb E[\ln(1 + v^3/v_c^3)])$ with $v \sim \mathcal N(v_b, (0.02v_b)^2/2)$,
 done with 24-point Gauss–Hermite.
 Any other `kind` raises `ValueError`.
-The density may be a profile on $s$; with $\iota\psi' > 0$ an
-outward-decreasing density drives $n > 0$, and $\partial_EF < 0$ damps.
+The density and the Maxwellian temperature may be profiles on $s$, differentiated at fixed
+energy. An outward-decreasing density drives for $n\,\iota\,\psi' < 0$: $n > 0$ in
+{func}`fax.circular_torus`, where $\psi' < 0$. $\partial_EF < 0$ damps.
 
 **Landau damping.** {func}`fax.ion_landau_damping` is the same integral for
 a flat thermal Maxwellian of the bulk ions, with the sign flipped so that a
