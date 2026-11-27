@@ -667,7 +667,7 @@ def test_eigenmodes_and_design_options_forward_dense_limit():
 
     def size(limit):
         def run(rho):
-            harmonics = jnp.array([[1.0, 1.0], [2.0, 1.0]])
+            harmonics = np.array([[1.0, 1.0], [2.0, 1.0]])  # static: the solve splits the list into blocks
             return fax.eigenmodes(geo, harmonics, rho, target_hz=1e5, count=2, ntheta=8, nzeta=4, dense_limit=limit).omega2
 
         return max([s[-1] for s in _lu_shapes(jax.make_jaxpr(run)(1e-7).jaxpr)], default=0)
