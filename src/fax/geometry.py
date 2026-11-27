@@ -9,6 +9,7 @@ tabulated in ``docs/theory.md``, section 1.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -204,7 +205,11 @@ class SurfaceGrid(NamedTuple):
 
 
 def read_boozmn(path: str | Path) -> Geometry:
-    """Read a BOOZ_XFORM ``boozmn`` netCDF file."""
+    """Read a BOOZ_XFORM ``boozmn`` netCDF file.
+
+    Warns when the coefficients end before the outer half surface (``jlist`` stops below ``ns_b``): a code that averages
+    neighbouring half surfaces onto the full mesh then has no data for the edge (STELLGAP's metric builder averages with zeros).
+    """
     from netCDF4 import Dataset
 
     with Dataset(Path(path).expanduser(), "r") as ds:
@@ -214,6 +219,12 @@ def read_boozmn(path: str | Path) -> Geometry:
             arrays["gmnc"] = _surface_major(var["gmn_b"])
         jlist = np.asarray(var["jlist"][:], dtype=int) if "jlist" in var else np.arange(1, arrays["bmnc"].shape[0] + 1)
         ns = float(np.asarray(var["ns_b"][...])) if "ns_b" in var else float(jlist.max())
+        if jlist.max() < ns:
+            warnings.warn(
+                f"{Path(path).name}: the outer half surface {ns:g} is not in the file (its coefficients stop at {jlist.max()}),"
+                " so quantities there are not available from it",
+                stacklevel=2,
+            )
         profile = lambda name: np.asarray(var[name][:], dtype=float)[jlist - 1]  # noqa: E731
         nfp = int(np.asarray(var["nfp_b"][...])) if "nfp_b" in var else 1
         return Geometry.from_arrays(

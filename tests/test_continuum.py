@@ -1,6 +1,8 @@
 """Continuum gates: analytic uniform-field limit, STELLGAP CTOK parity, gap formulas."""
 
+import functools
 import sys
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from netCDF4 import Dataset
 
 import fax
 from fax.continuum import MU0, generalized_eigh, spectral_blocks
@@ -35,20 +38,53 @@ def test_matrices_are_hermitian_and_resolution_converged():
     np.testing.assert_allclose(fax.continuum(geo, h, 3.4e-8, 32, 32), fax.continuum(geo, h, 3.4e-8, 64, 64), rtol=1e-9)
 
 
-def test_stellgap_ctok_parity():
-    """Same boozmn_ctok.nc and STELLGAP inputs (n = 2, m = 0..12, deuterium at 1e19 m^-3)."""
-    geo = fax.read_boozmn(DATA / "boozmn_ctok.nc")
-    rho = fax.mass_density(1e19, 2 * 1.00727647)  # two proton masses
-    khz = np.asarray(jax.jit(lambda g: fax.continuum(g, fax.mode_family(2, 12), rho))(geo)) / 1e3
-    ref = np.load(DATA / "stellgap_ctok_continuum.npz")
+@functools.cache
+def _ctok_khz():
+    """FAX continuum of the packet ``boozmn_ctok.nc`` (n = 2, m = 0..12, deuterium at 1e19 m^-3), kHz."""
+    with pytest.warns(UserWarning, match="outer half surface .* is not in the file"):  # jlist = 2..100 of ns_b = 101
+        geo = fax.read_boozmn(DATA / "boozmn_ctok.nc")
+    rho = fax.mass_density(1e19, 2 * 1.00727647)  # two proton masses; STELLGAP uses 2 x 1.67e-27 kg (plasma.dat)
+    return np.asarray(geo.s), np.asarray(jax.jit(lambda g: fax.continuum(g, fax.mode_family(2, 12), rho))(geo)) / 1e3
+
+
+def _stellgap_ctok_errors(name):
+    """Relative L2 error of the 13 sorted branches per surface against a STELLGAP CTOK reference, on the 97 common surfaces."""
+    s, khz = _ctok_khz()
+    ref = np.load(DATA / name)
     # STELLGAP averages half-mesh rows k, k+1 onto full surface k = 2..ns-1 but labels it
     # k/(ns-1) (stellgap rho = nsurf/nsurf_max), one cell outward of the physical (k-1)/(ns-1).
     s_ref = ref["s"] - 1.0 / 100.0  # boozmn_ctok.nc has ns_b = 101
-    inside = (geo.s > s_ref[0]) & (geo.s < s_ref[-1])
-    expected = np.stack([np.interp(geo.s[inside], s_ref, col) for col in ref["khz"].T], axis=1)
-    errors = np.linalg.norm(khz[inside] - expected, axis=1) / np.linalg.norm(expected, axis=1)
+    inside = (s > s_ref[0]) & (s < s_ref[-1])
+    expected = np.stack([np.interp(s[inside], s_ref, col) for col in ref["khz"].T], axis=1)
+    return s[inside], np.linalg.norm(khz[inside] - expected, axis=1) / np.linalg.norm(expected, axis=1)
+
+
+def test_stellgap_ctok_parity():
+    """Against STELLGAP rebuilt with the outer Boozer half surface restored from the packet's WOUT (plan step 1.6:
+    measured maximum 0.70%, mean 0.42%, 95th percentile 0.67%; gate maximum 1%, mean 0.5%)."""
+    s, errors = _stellgap_ctok_errors("stellgap_ctok_edge_continuum.npz")
     assert errors.size == 97
-    assert np.mean(errors) < 7e-3 and np.percentile(errors, 95) < 7e-3
+    assert np.max(errors) < 1e-2 and np.mean(errors) < 5e-3
+
+
+def test_archived_stellgap_ctok_fails_at_the_edge_without_the_outer_half_surface(tmp_path):
+    """The packet STELLGAP output was built from a metric whose outer surface averages the last half surface with zeros
+    (``metric_element_create_ver8.46.f``, lines 9-17): FAX differs by 5.20% at s = 0.965 and 16.45% at s = 0.975 (plan step 1.6),
+    and the two references agree inside, where the restored surface does not enter."""
+    s, errors = _stellgap_ctok_errors("stellgap_ctok_continuum.npz")
+    np.testing.assert_allclose(s[-2:], [0.965, 0.975])
+    np.testing.assert_allclose(errors[-2:], [0.0520, 0.1645], rtol=1e-2)
+    old, new = (np.load(DATA / f) for f in ("stellgap_ctok_continuum.npz", "stellgap_ctok_edge_continuum.npz"))
+    np.testing.assert_array_equal(old["s"], new["s"])
+    drift = np.linalg.norm(old["khz"] - new["khz"], axis=1) / np.linalg.norm(new["khz"], axis=1)
+    assert drift[old["s"] < 0.85].max() < 1e-6 and drift.max() > 0.1
+    complete = tmp_path / "boozmn_ctok.nc"  # the same file with ns_b = 100: its last half surface is present
+    complete.write_bytes((DATA / "boozmn_ctok.nc").read_bytes())
+    with Dataset(complete, "a") as ds:
+        ds["ns_b"].assignValue(100)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fax.read_boozmn(complete)
 
 
 def test_gaps_and_gap_location():

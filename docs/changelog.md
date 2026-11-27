@@ -14,8 +14,8 @@ What changes for users of 1.2.0:
 - The design path (`geometry_frequencies`, `design_frequencies`, `geometry_growth_rates`), `summary` and the case runner use
   the same default basis. A vmex state without `lasym` is stated stellarator symmetric, so the design path solves real
   sectors under `jax.jit`. The quasi-axisymmetric example `examples/qa_vmex.py` moves from 294.11, 294.44, 294.92 kHz to
-  245.55, 245.76, 246.06 kHz. The case file key `run.parity` is `"auto"` (default), `"single"`, `1` or `-1`, and
-  `ntheta = nzeta = 0` there means the default grid.
+  245.55, 245.76, 246.06 kHz. The case file key `run.parity` is unset or `"auto"` (default), `"single"`, `1` or `-1`, and
+  unset `ntheta` and `nzeta` take the default grid.
 - `geometry_growth_rates` drives the modes of cosine and sine sectors as pairs (`fax.drive.pair_rates`): a mode and its
   nearest partner of the other sector form the 2 x 2 ledger of plan 8.5 (frequencies on the diagonal, the drive matrix
   in one wave energy) and get its two rates. Far apart in frequency these are the standing-wave rates; for the LP-QA pair
