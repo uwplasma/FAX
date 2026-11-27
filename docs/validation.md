@@ -478,7 +478,7 @@ solve converged and the selection does not split a tied set. Each route is teste
   steps), and along `zs01` it reaches a non-finite state after 10 steps. The `zs11` and `zs01` sensitivities
   are therefore verified to the floors above and not to 1e-5, and `plan.md` keeps that item open.
 
-**Resolution budget of the real objective.** The lowest of the two $n = 1$ gap modes of LP-QA (102 kHz, next section) and
+**Resolution budget of the real objective** (single-sign basis, `parity="single"`, computed before the default changed; not rerun). The lowest of the two $n = 1$ gap modes of LP-QA (102 kHz, next section) and
 its gradient in the four coefficients of the QA example (`rc11, zs11, rc12, zs12`). Base: 24 FE nodes, $n_s = 16$,
 `mboz = nboz = 6`, $16 \times 16$ angles, $m \le 5$ ($f$ = 101.8964 kHz). One resolution is refined at a time
 (`test_resolution_budget_of_the_gap_mode_frequency_and_gradient`, scheduled tier); the change is between the two finest
@@ -542,7 +542,7 @@ is a statement about that branch, not about a mode that a fast ion could resonat
 test of the gradient chain (it is what the gradient tests above differentiate for the continuum minimum), and is kept in
 the example as `--modes continuum`.
 
-**QA: global modes out of a window.** The three lowest $n = 0$ global modes
+**QA: global modes out of a window** (single-sign basis, as above; with the default the first evaluation gives 245.55, 245.76, 246.06 kHz). The three lowest $n = 0$ global modes
 ($m = 1$–3, 24 nodes) start at 294.10–294.92 kHz inside
 [293.10, 314.92] kHz; 4 coefficients (`rc11, zs11, rc12, zs12`),
 30 evaluations, 18 min:

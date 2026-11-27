@@ -17,21 +17,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .continuum import continuum, continuum_matrices, generalized_eigh
-from .drive import FastIons, growth_rate
-from .eigen import (
-    Status,
-    _dense_status,
-    _hz,
-    dense,
-    eigenmodes,
-    global_matrices,
-    lowest_eigenvalues,
-    selected,
-    split_solver,
-    targeted_eigenpairs,
-)
-from .geometry import Geometry, axisymmetric, from_booz_xform, surface_grid
+from .continuum import block_matrices, continuum, continuum_matrices, generalized_eigh, on_rows, spectral_blocks
+from .drive import FastIons, growth_rate, pair_rates
+from .eigen import Status, _hz, eigenmodes, selected, solve, split_solver, travelling
+from .geometry import Geometry, axisymmetric, check, from_booz_xform, surface_grid
 
 
 def window_risk(frequencies_hz: Any, window_hz: tuple[float, float], softness_hz: float) -> jax.Array:
@@ -258,12 +247,14 @@ def design_params(offsets: Any, design: Design) -> Any:
 
 
 def state_geometry(state: Any, runtime: Any, design: Design) -> Geometry:
-    """Boozer geometry on the half-mesh rows ``j >= 1`` from a vmex state and runtime (traceable), one call to vmex."""
+    """Boozer geometry on the half-mesh rows ``j >= 1`` from a vmex state and runtime (traceable), one call to vmex. A state
+    without ``lasym`` is stated stellarator symmetric: under ``jax.jit`` its all-zero asymmetric tables are traced, and the
+    statement keeps the real sectors (:class:`fax.Geometry`)."""
     from vmex.core.omnigenity import boozer_spectrum_state
 
     c = design._cache
     out = boozer_spectrum_state(state, runtime, surfaces=c["s"], mboz=c["mboz"], nboz=c["nboz"], oversample=1, geometry=True)
-    return from_booz_xform(out, out["s_b"], out["nfp"])
+    return from_booz_xform(out, out["s_b"], out["nfp"], **({} if runtime.setup.lasym else {"stellsym": True}))
 
 
 def design_state(offsets: Any, design: Design) -> tuple[Any, Any]:
@@ -296,16 +287,11 @@ def geometry_frequencies(geo: Geometry, design: Design, mode_count: int = 3) -> 
     """
     solver, opts = split_solver(design.options)
     target = opts.pop("target_hz", None)
-    F, G = global_matrices(_nodes(geo, design.nodes), design.harmonics, design.density, **opts)
+    target = None if target is None else (2 * jnp.pi * target) ** 2
+    lam, _, status = solve(_nodes(geo, design.nodes), design.harmonics, design.density, target, **solver, vectors=False, **opts)
     if target is None:
-        K, M = dense(F), dense(G)
-        lam, x = jax.lax.stop_gradient(generalized_eigh(K, M))
-        status = _dense_status(K, M, lam, x, solver.get("tol", 1e-10))._replace(gap=lam[mode_count] - lam[mode_count - 1])
-        omega2 = lowest_eigenvalues(K, M, mode_count)
-    else:
-        lam, _, status = targeted_eigenpairs(F, G, (2 * jnp.pi * target) ** 2, **solver)
-        omega2 = lam[:mode_count]
-    return _reject(_hz(omega2), status, lam), status
+        status = status._replace(gap=jax.lax.stop_gradient(lam[mode_count] - lam[mode_count - 1]))
+    return _reject(_hz(lam[:mode_count]), status, lam), status
 
 
 def design_frequencies(offsets: Any, design: Design, mode_count: int = 3) -> tuple[jax.Array, Status]:
@@ -320,12 +306,23 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     The modes come from the shift-invert solve on the design's FE nodes (differentiated
     through the iteration); ``ions.density`` is a scalar or a profile on those nodes and
     ``drive`` goes to :func:`fax.growth_rate`. The rates are NaN unless the solve converged and its selection
-    does not split a tied set (``gap > 1e-8 max|omega^2|``).
+    does not split a tied set (``gap > 1e-8 max|omega^2|``). Modes of cosine and sine sectors are standing waves, driven
+    as pairs (:func:`fax.drive.pair_rates`, among the ``count`` modes); the other blocks of
+    :func:`fax.continuum.spectral_blocks` give travelling waves (:func:`fax.eigen.travelling`). A basis that holds both
+    kinds is refused.
     """
-    geo = _nodes(geo, design.nodes)
+    geo, parity = _nodes(geo, design.nodes), design.options.get("parity")
     ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
-    rate = lambda w2, y: growth_rate(jnp.sqrt(w2), y, geo, design.harmonics, ions, design.density, **drive)  # noqa: E731
-    return _reject(jnp.stack([rate(ev.omega2[i], ev.structures[i]) for i in range(mode_count)]), ev.status, ev.omega2)
+    sectors = [b.parity in (1, -1) for b in spectral_blocks(geo, design.harmonics, parity)]
+    check(all(sectors) or not any(sectors), "the drive needs sector modes or travelling modes alone: give one family or a parity")
+    w, x = jnp.sqrt(ev.omega2), ev.structures
+    if all(sectors):
+        sine = jnp.sum(x.imag**2, (1, 2)) > jnp.sum(x.real**2, (1, 2))  # a sine-sector structure is -i times real
+        rates = pair_rates(w, x, sine, geo, design.harmonics, ions, design.density, **drive)[:mode_count]
+    else:
+        h, x = travelling(geo, design.harmonics, x, parity)
+        rates = jnp.stack([growth_rate(w[i], x[i], geo, h, ions, design.density, **drive) for i in range(mode_count)])
+    return _reject(rates, ev.status, ev.omega2)
 
 
 def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
@@ -338,10 +335,12 @@ def _gap_type(dm: int, dn: int, sound: bool = False) -> str:
 
 
 def mode_families(geo: Geometry, harmonics: Any) -> list[np.ndarray]:
-    """Row indices of ``harmonics`` that the equilibrium couples: one group per ``n`` when the geometry is axisymmetric,
-    one per ``n mod nfp`` otherwise. Harmonics of different groups never couple, so their continua are separate spectra."""
+    """Row indices of ``harmonics`` that the equilibrium couples in a real potential: one group per ``|n|`` when the geometry is
+    axisymmetric, one per pair ``{N, -N}``, ``N = n mod nfp``, otherwise (``(m, n)`` couples to ``(-m', -n')`` when
+    ``n + n'`` is a multiple of ``nfp``, see :func:`fax.continuum.spectral_blocks`). Different groups never couple, so their
+    continua are separate spectra."""
     h = np.asarray(harmonics, dtype=int)
-    key = h[:, 1] if axisymmetric(geo) else np.mod(h[:, 1], geo.nfp)
+    key = np.abs(h[:, 1]) if axisymmetric(geo) else np.minimum(np.mod(h[:, 1], geo.nfp), np.mod(-h[:, 1], geo.nfp))
     return [np.flatnonzero(key == k) for k in np.unique(key)]
 
 
@@ -396,9 +395,19 @@ def _local_gaps(f: np.ndarray, min_width: float, edge: int) -> list[tuple[int, i
 
 
 def _spectrum(geo: Geometry, h: np.ndarray, rho: Any, pressure: Any, grid: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Sorted continuum (kHz), branch power per unknown and the dominant ``m`` of each branch (NaN for a sound branch)."""
-    w2, x = generalized_eigh(*continuum_matrices(geo, h, rho, pressure=pressure, **grid))
-    power = np.abs(np.asarray(x)) ** 2  # (surfaces, unknowns, branches)
+    """Sorted continuum (kHz), branch power per unknown (the listed harmonics, then their sound unknowns) and the dominant
+    ``m`` of each branch (NaN for a sound branch), from the blocks of :func:`fax.continuum.spectral_blocks`."""
+    w2, power, cache = [], [], {}
+    assemble = lambda hb, p: continuum_matrices(geo, hb, rho, pressure=pressure, parity=p, **grid)  # noqa: E731
+    for b in spectral_blocks(geo, h):
+        lam, y = generalized_eigh(*block_matrices(assemble, geo, b, cache))
+        y, n = np.swapaxes(np.asarray(y), 1, 2), len(b.rows)  # (surfaces, branches, unknowns)
+        x = [on_rows(y[..., i : i + n], b, len(h)) for i in range(0, y.shape[-1], n)]  # Alfven, then sound unknowns
+        w2.append(np.asarray(lam))
+        power.append(np.swapaxes(np.abs(np.concatenate(x, -1)) ** 2, 1, 2))
+    order = np.argsort(np.concatenate(w2, -1), -1)
+    w2 = np.take_along_axis(np.concatenate(w2, -1), order, -1)
+    power = np.take_along_axis(np.concatenate(power, -1), order[:, None], -1)  # (surfaces, unknowns, branches)
     dom = np.argmax(power, 1)
     return np.sqrt(np.maximum(np.asarray(w2), 0.0)) / (2 * np.pi) / 1e3, power, np.where(dom < len(h), h[dom % len(h), 0], np.nan)
 
@@ -415,8 +424,8 @@ def summary(
     max_gaps: int = 6,
     min_width: float = 0.05,
     edge: float = 0.05,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     iters: int = 100,
     tol: float = 1e-10,
 ) -> dict[str, Any]:

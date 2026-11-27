@@ -7,7 +7,8 @@ A case file has four tables; every key is optional and takes the default shown (
     [modes]     n = [1], m_max = 8, m_min = 0
     [plasma]    density = 1e19 (ions/m^3), ion_mass = 1.0 (amu), density_profile = [1.0] (polynomial in s)
     [run]       task = "continuum" | "eigenmodes", output = "outputs", ntheta = none, nzeta = none (none: the API
-                default grid), target_khz = 0 (0: all modes), count = 8
+                default grid), target_khz = 0 (0: all modes), count = 8, parity = none
+                (none or "auto": both signs of every harmonic) | "single" (the list as given) | 1 | -1
 
 A scalar is accepted where a list is expected. The full reference: docs/getting-started.md, "TOML reference".
 """
@@ -44,7 +45,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "modes": {"n": [1], "m_max": 8, "m_min": 0},
     "plasma": {"density": 1.0e19, "ion_mass": 1.0, "density_profile": [1.0]},
-    "run": {"task": "continuum", "output": "outputs", "ntheta": None, "nzeta": None, "target_khz": 0.0, "count": 8},
+    "run": {"task": "continuum", "output": "outputs", "ntheta": None, "nzeta": None, "target_khz": 0.0, "count": 8, "parity": None},
 }
 
 
@@ -70,6 +71,9 @@ def load(case: str | Path | dict[str, Any]) -> dict[str, dict[str, Any]]:
             if default is not None and (not isinstance(value, kind) or isinstance(value, bool) != isinstance(default, bool)):
                 raise ValueError(f"[{table}] {key} must be {type(default).__name__}, got {value!r}")
             config[table][key] = value
+    parity = config["run"]["parity"] = None if config["run"]["parity"] == "auto" else config["run"]["parity"]
+    if parity not in (None, "single") and (type(parity) is not int or parity not in (1, -1)):
+        raise ValueError(f'[run] parity must be "auto", "single", 1 or -1, got {parity!r}')
     for table, key in (("geometry", "path"), ("run", "output")):
         if config[table][key] is not None:
             config[table][key] = str((root / Path(config[table][key]).expanduser()).resolve())
@@ -100,7 +104,7 @@ def run(case: str | Path | dict[str, Any], *, save: bool = True) -> dict[str, An
     geo = geometry(config)
     harmonics = mode_family(tuple(m["n"]), m["m_max"], m["m_min"])
     p = config["plasma"]
-    grid = {key: r[key] for key in ("ntheta", "nzeta") if r[key] is not None}
+    grid = {key: r[key] for key in ("ntheta", "nzeta", "parity") if r[key] is not None}
     rho = mass_density(p["density"] * np.polyval(p["density_profile"][::-1], np.asarray(geo.s)), p["ion_mass"])
     out: dict[str, Any] = {"s": geo.s, "iota": geo.iota, "harmonics": harmonics}
     if r["task"] == "continuum":

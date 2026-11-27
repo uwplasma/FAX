@@ -69,11 +69,15 @@ class Geometry:
     def from_arrays(cls, nfp: int, **arrays: Any) -> Geometry:
         """Build a geometry (traceable), filling missing asymmetric harmonics with zeros. The facts come from the inputs
         before conversion (an absent array is zero); a fact given by keyword (``axisymmetric=True``, ...) holds where they
-        are traced."""
+        are traced and raises ``ValueError`` where concrete arrays contradict it, by the exact rules of :class:`Geometry`
+        (``stellsym=True`` with ``bmns = 1e-16`` raises: no rounding tolerance)."""
         stated = {name: bool(arrays.pop(name)) for name in _STATIC[1:] if name in arrays}
         zeros = jnp.zeros_like(jnp.asarray(arrays["bmnc"], dtype=float))
         geo = cls(**{name: jnp.asarray(arrays.get(name, zeros), dtype=float) for name in _ARRAYS}, nfp=int(nfp))
-        return _set_facts(geo, {**stated, **_facts(arrays.get, int(nfp))})
+        computed = _facts(arrays.get, int(nfp))
+        for name in stated.keys() & computed.keys():
+            check(stated[name] == computed[name], f"{name}={stated[name]} contradicts the arrays, which give {computed[name]}")
+        return _set_facts(geo, {**stated, **computed})
 
     def surfaces(self, index: Any) -> Geometry:
         """Return the geometry restricted to the given surface indices."""

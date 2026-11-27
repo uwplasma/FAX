@@ -394,6 +394,29 @@ def test_folded_rows_are_driven_as_the_travelling_wave_of_their_block():
         assert abs(drive(tok, h, phi=ev.structures[k], omega=w, **opt) / want - 1) > 0.1  # the folded reading
 
 
+def test_a_pair_of_sector_modes_is_driven_as_a_two_mode_ledger():
+    """Plan 8.5: two modes closer than the drive couples them are one 2 x 2 problem, dc/dt = (diag(-i omega) + Gamma) c.
+    In a tokamak the cosine and sine modes of n = 6 are degenerate, so its rates are those of the two travelling waves,
+    gamma_+ on (m, 6) and gamma_- on (-m, -6), to 1e-8. With the partner moved 20% away in frequency the coupling only
+    shifts the diagonal (standing) rates by |Gamma_ab|^2 / delta omega, here below 1e-6 of them."""
+    from fax.drive import pair_rates
+
+    tok, h, opt = torus(), np.array([[10.0, 6.0], [11.0, 6.0]]), dict(helical=0, nzeta=32)
+    cos, sin = (fax.eigenmodes(tok, h, RHO, parity=p) for p in (1, -1))
+    k = len(cos.omega2) // 2
+    w = float(np.sqrt(cos.omega2[k]))
+    assert abs(np.sqrt(sin.omega2[k]) / w - 1) < 1e-10
+    x = jnp.stack([cos.structures[k], sin.structures[k]])
+    rate = lambda om, y: drive(tok, h, phi=y, omega=om, standing=True, **opt)  # noqa: E731
+    ions = fax.FastIons(density=1e17 * jnp.exp(-8 * S40), temperature_ev=200e3)  # as in drive()
+    ledger = lambda om: pair_rates(om, x, jnp.array([False, True]), tok, h, ions, RHO, **{**LOOSE, **opt})  # noqa: E731
+    plus, minus = drive(tok, h, phi=x[0], omega=w, **opt), drive(tok, -h, phi=jnp.conj(x[0]), omega=w, **opt)
+    np.testing.assert_allclose(np.sort(ledger(jnp.array([w, w]))), np.sort([minus, plus]), rtol=1e-8)
+    far = jnp.array([w, 1.2 * w])
+    diag = [rate(far[0], x[0]), rate(far[1], x[1])]
+    np.testing.assert_allclose(ledger(far), diag, rtol=1e-6)
+
+
 # --- the kit case of the radial derivative (plan step 1.5): Koenies torus, n = 1e17 (1 - 0.65 s), two Gaussians at s = 1/4 ---
 
 ATOMIC_D = 2.01410178  # atomic deuterium mass (u): the plan's numbers of step 1.5 were measured with it
