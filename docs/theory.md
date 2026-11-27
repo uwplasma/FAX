@@ -140,12 +140,32 @@ returns $f = \sqrt{\max(\omega^2,0)}/2\pi$ sorted on each surface.
 **Uniform field.** For $\epsilon_B = 0$ the matrices are diagonal and
 $\omega = |n - m\iota|\,v_A/R_0$, $v_A = B_0/\sqrt{\mu_0\rho}$, exactly.
 
-**Stellarator symmetry and parity.** With every asymmetric harmonic zero, $(\theta,\zeta)\to(-\theta,-\zeta)$ commutes with the
-operator, so $K$ and $M$ are real and FAX solves them in real arithmetic. A real potential needs $(m, n)$ and $(-m, -n)$ together.
-The single-sign list $e_j$ misses the coupling of $(m, n)$ to $(-m', -n')$ through the field harmonic $(m + m', n + n')$, present when
-$2n$ is a multiple of $N_{fp}$ (every family at $N_{fp} = 2$, $n = 0$ in a tokamak). On both signs the problem splits exactly into
-the real cosine sector, STELLGAP's basis, and the sine sector, AE3D's, each the size of the list: `parity=1` or `-1` in
-{func}`fax.continuum_matrices` and {func}`fax.global_matrices`.
+**The basis of a real potential.** The potential is real, $\phi = \mathrm{Re}\sum_j x_j e_j$ with
+$e_j = e^{i(m_j\theta - n_j\zeta)}$. Its energy is $\tfrac12 x^\dagger K x + \tfrac12\mathrm{Re}\,x^T B x$: the Hermitian part couples
+$j$ and $k$ through the field harmonic $(m_k - m_j, n_k - n_j)$, the bilinear part couples $(m_j, n_j)$ to $(-m_k, -n_k)$ through
+$(m_j + m_k, n_j + n_k)$. The averaged field has toroidal numbers that are multiples of $N_{fp}$ (only $0$ when axisymmetric), so
+$B$ is nonzero only for pairs with $n_j + n_k \equiv 0 \pmod{N_{fp}}$ ($n_j + n_k = 0$ in a tokamak). A Hermitian problem on the
+listed harmonics alone (the single-sign basis, `parity="single"`, the earlier default) drops $B$.
+
+- It is exact when no listed pair has $n_j + n_k \equiv 0$: a tokamak with $n \ne 0$, or one stellarator family
+  $N = n \bmod N_{fp}$ with $2N \not\equiv 0$ (e.g. $N = 1$ at $N_{fp} = 4$ or 5). Each eigenvalue is then a degenerate pair of real
+  modes (the two travelling waves), and the list is complete.
+- It is not exact for the self-conjugate families $N = 0$ (any $N_{fp}$; $n = 0$ in a tokamak) and $N = N_{fp}/2$ ($N = 1$ at
+  $N_{fp} = 2$, $N = 2$ at $N_{fp} = 4$), and for a list that holds both $N$ and $-N$ (as {func}`fax.alfven_harmonics` does). There
+  the single-sign spectrum matches no real mode set.
+
+The default ({func}`fax.continuum.spectral_blocks`) solves the list on both signs, $(m, n)$ and $(-m, -n)$, split into blocks that do
+not couple. A family $N$ with its conjugate $-N \ne N$ is one complex pencil on $(m, n)$ of family $N$ and $(-m, -n)$ of family $-N$;
+the conjugate pencil has the same eigenvalues and is not solved, so each eigenvalue (a travelling pair) is reported once, as before.
+A self-conjugate family is one pencil on both signs. With stellarator symmetry the reflection $(\theta,\zeta)\to(-\theta,-\zeta)$
+commutes with the operator and maps $e_j$ to $e_{-j}$, so that pencil is real and splits exactly into the cosine sector (even,
+STELLGAP's basis) and the sine sector (odd, AE3D's), each the size of the list (the sine sector has no $(0, 0)$). The two sectors have
+different eigenvalues in general; both are physical, so the default returns both, merged and sorted: "the spectrum" of the listed
+harmonics. Without symmetry, or for a traced geometry whose static symmetry facts are unknown ({class}`fax.Geometry`), the
+self-conjugate pencil is solved as one complex problem on both signs, with the same eigenvalues.
+Mode `structures` are the coefficients $x$ of the listed harmonics: real for a cosine-sector mode, $-i$ times real for a sine-sector
+mode. `parity=1` or `-1` selects one sector and `parity="single"` the old basis in {func}`fax.continuum`, {func}`fax.eigenmodes` and
+{func}`fax.frequency_hz`; {func}`fax.continuum_matrices` and {func}`fax.global_matrices` assemble exactly the list they are given.
 
 **Mode families.** In a stellarator with $N_{fp}$ periods, $n$ couples only to
 $n + kN_{fp}$, so a family is a list `n = [n0, n0 + Nfp, n0 - Nfp, ...]` in

@@ -31,8 +31,24 @@ ASYMMETRIC_TOKAMAK = """&INDATA
 def test_vmec_input_to_continuum():
     geo = fax.from_vmec_input(INPUT, ns=16, mboz=6, nboz=6, surfaces=(0.3, 0.5, 0.7))
     assert geo.nfp == 2 and geo.s.shape == (3,)
-    f = fax.continuum(geo, fax.mode_family(1, 4), fax.mass_density(1e19), 16, 16)
-    assert jnp.all(jnp.isfinite(f)) and f.shape == (3, 5)
+    f = fax.continuum(geo, fax.mode_family(1, 4), fax.mass_density(1e19))  # n = 1 is self-conjugate at nfp = 2: both sectors
+    assert jnp.all(jnp.isfinite(f)) and f.shape == (3, 10)
+
+
+@pytest.mark.slow
+def test_regression_lpqa_gap_modes_on_both_signs():
+    """Regression, labelled as such (plan 8.3): the n = 1 family of LP-QA (Landreman and Paul 2022) on both signs has three
+    modes in 102-105 kHz, 103.128, 103.946, 104.840 kHz at 24 FE nodes (102.355 and 104.579 on one sign) and 102.616,
+    103.125, 104.327 kHz at 49; ns = 16, mboz = nboz = 6, 28 x 28 angles. Step 1.1 moves them."""
+    h = fax.mode_family((1, -1, 3), 5)
+    design = fax.prepare_design(INPUT, harmonics=h, density=3.4e-8, nodes=24, mboz=6, nboz=6, parameters=("rc11", "zs11", "rc12", "zs12"))
+    geo = fax.design_geometry(jnp.zeros(4), design)
+    for nodes, want in ((24, [103.128, 103.946, 104.840]), (49, [102.616, 103.125, 104.327])):
+        g = geo.interpolate(jnp.arange(1, nodes + 1) / (nodes + 1))
+        modes = fax.eigenmodes(g, h, design.density, target_hz=103e3, count=6, ntheta=28, nzeta=28, iters=200)
+        f = np.sort(np.asarray(modes.frequencies_hz)) / 1e3
+        assert modes.status.converged
+        np.testing.assert_allclose(f[(f > 102) & (f < 105)], want, atol=2e-3)
 
 
 @pytest.mark.slow

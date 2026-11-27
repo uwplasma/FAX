@@ -111,6 +111,7 @@ def growth_rate(
     ntheta: int = 64,
     nzeta: int = 32,
     resolved: bool = False,
+    standing: bool = False,
 ) -> Any:
     """Fast-ion growth rate (1/s) of a mode ``phi`` (shape ``(len(geo.s), H)``, nodal values) at ``omega`` (rad/s).
 
@@ -124,6 +125,14 @@ def growth_rate(
     nonconstant harmonic of the grid has ``iota k_theta + k_zeta = 0`` exactly. The check is a property of the grid, so it also
     fires for an axisymmetric field sampled with ``nzeta > 1`` (use ``nzeta = 1``); under ``jit`` it is skipped and such a case
     returns NaN.
+
+    ``standing=True`` reads ``phi`` as a cosine- or sine-sector mode of :func:`fax.eigenmodes`, the standing wave
+    ``Re sum_h phi_h exp(i(m_h theta - n_h zeta))``: the rate is that of its travelling components ``phi / 2`` on ``(m, n)``
+    and ``conj(phi) / 2`` on ``(-m, -n)`` together, with their interference. It is the rate of the mode only when the
+    cosine and sine partners are further apart in frequency than the drive couples them; a nearer pair needs the 2 x 2 ledger
+    of the two modes, and in an axisymmetric field, where the partners are degenerate, the travelling rates (this function
+    without ``standing``, on ``(m, n)`` and on ``(-m, -n)``) are the physical ones. A mode of :func:`fax.eigenmodes` whose
+    block folds ``(-m, -n)`` rows goes through :func:`fax.eigen.travelling` first.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(
@@ -134,6 +143,13 @@ def growth_rate(
         ],
         dtype=float,
     )
+    if standing:  # each travelling component keeps its own sidebands; a harmonic listed twice (as (0, 0)) sums its parts
+        hm, row = np.unique(np.concatenate([hm, -hm]), axis=0, return_inverse=True)
+        both = jnp.concatenate([jnp.asarray(phi), jnp.conj(jnp.asarray(phi))], 1) / 2
+        phi, pairs = (
+            jnp.zeros((both.shape[0], len(hm)), complex).at[:, row.reshape(-1)].add(both),
+            np.unique(np.concatenate([pairs, -pairs]), axis=0),
+        )
     kt, kz = np.meshgrid(*(np.fft.fftfreq(k, 1.0 / k) for k in (ntheta, nzeta)), indexing="ij")
     rational = jnp.any((jnp.asarray(geo.iota)[:, None, None] * kt + kz == 0) & ((kt != 0) | (kz != 0)))
     check((guard != 0) | ~rational, "guard = 0 on a rational surface: iota k_theta + k_zeta = 0 for a nonconstant harmonic of the grid")

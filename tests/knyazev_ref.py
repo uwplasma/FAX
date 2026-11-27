@@ -51,11 +51,11 @@ def geometry(fx, nodes=49):
     return geometry_half(fx).interpolate(jnp.arange(1, nodes + 1) / (nodes + 1.0))
 
 
-def continuum_khz(fx, geo, ntheta=64, nzeta=48, parity=None):
+def continuum_khz(fx, geo, ntheta=112, nzeta=72, parity=1):
     """FAX continuum (kHz, sorted) on every surface of ``geo`` for the 162 AE3D harmonics.
 
-    ``parity=None`` is the single-sign complex basis of the ``(m, n)`` list, ``1`` the cos sector (STELLGAP's basis) and
-    ``-1`` the sin sector (AE3D's); the sectors need a grid that resolves ``2 max m`` (112 x 72).
+    ``parity=1`` (default) is the cos sector, STELLGAP's basis, ``-1`` the sin sector (AE3D's), ``"single"`` the single-sign
+    list and ``None`` FAX's default (both sectors); the sectors need a grid that resolves ``2 max m`` (112 x 72).
     """
     return np.asarray(fax.continuum(geo, jnp.asarray(fx["mn"], dtype=float), RHO, ntheta, nzeta, parity=parity)) / 1e3
 
@@ -103,7 +103,7 @@ def rayleigh_khz(F, G, a):
     return float(np.sqrt((a.conj() @ F @ a).real / (a.conj() @ G @ a).real) / 2e3 / np.pi)
 
 
-def continuum_error(fx, ntheta=64, nzeta=48, parity=None):
+def continuum_error(fx, ntheta=112, nzeta=72, parity=1):
     """FAX against STELLGAP on the fixture surfaces (physical ``s`` = label - 0.02): per-surface relative L2 error of the
     sorted branches, and the relative error of the two branches that bracket ``GLOBAL_KHZ`` (lower, upper edge of its gap)."""
     s = fx["sg_s"] - 0.02
