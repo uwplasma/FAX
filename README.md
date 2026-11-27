@@ -79,8 +79,8 @@ Every script has a `RESEARCH = False` switch at the top: the default is a fast r
 
 | Check | Result |
 |---|---|
-| STELLGAP CTOK continuum (97 surfaces) | 6.3e-3 mean, 6.6e-3 p95 relative |
-| AE3D v31 CTOK, six global modes | within 1.4% |
+| STELLGAP CTOK continuum (97 surfaces), outer Boozer half surface restored | 4.2e-3 mean, 7.0e-3 maximum relative |
+| AE3D v31 CTOK, six global modes | within 0.19–1.35% in frequency; two of them (738.2, 741.2 kHz) in frequency only (inertia-norm cosine 0.37, 0.08) |
 | AE3D CTOK TAE, 337.9 kHz | not reproduced. On identical input three $\iota'$ terms of AE3D's bending blocks differ from the energy (pinned block comparison; real-space quadrature FAX 0.1–0.3%, AE3D 2–37%). The $J_\parallel$ blocks still disagree, cause open. Not reported upstream |
 | Knyazev et al. (2026) precise QA | continuum 3.0e-3 mean from STELLGAP. The AE3D global mode (30.31 kHz) is not a FAX eigenmode (overlap 0.18, 5.1% below); cause unresolved |
 | Könies et al. (2018) TAE (n = 6) | 4.061e5 rad/s (CAS3D 4.01e5, GYGLES 4.13e5), converged to 1e-4 |
