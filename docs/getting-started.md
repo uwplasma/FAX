@@ -51,6 +51,7 @@ The command line runs two tasks from a TOML case: the continuum and the global m
 ```console
 fax run case.toml            # writes <run.output>/results.npz and case.json
 fax run case.toml --plot     # also continuum.png (and modes.png for eigenmodes); needs the plot extra
+fax --traceback run case.toml  # an input error prints one line `fax: error: ...` and exits with status 2; this shows the traceback
 fax run case.toml --cache    # persists JAX compilations in ~/.cache/fax/jax (--cache DIR for another); later runs skip them
 fax plot outputs/case        # figures for an existing results folder
 ```
@@ -81,7 +82,7 @@ arguments, NaN for rejected solves); see {doc}`tutorials`.
 ## TOML reference
 
 A case has four tables. Every key is optional and takes the default below
-(`fax.io.DEFAULTS`); unknown tables or keys raise `ValueError`. The solver rejects a non-positive density, surfaces outside
+(`fax.io.DEFAULTS`); an unknown table or key, or a value of the wrong type, raises `ValueError` naming the valid keys. A scalar is accepted where a list is expected (`n = 2` is `n = [2]`). The solver rejects a non-positive density, surfaces outside
 the open interval (0, 1) and a repeated `(m, n)` harmonic. Relative `geometry.path` and `run.output` are resolved against the case file.
 
 ### `[geometry]`
@@ -89,7 +90,7 @@ the open interval (0, 1) and a repeated `(m, n)` harmonic. Relative `geometry.pa
 | Key | Default | Meaning |
 |---|---|---|
 | `source` | `"circular"` | `"boozmn"` (BOOZ_XFORM file), `"wout"` (VMEC file through booz_xform_jax), `"vmec"` (VMEC input solved by vmex, then booz_xform_jax), `"circular"` ({func}`fax.circular_torus` with its defaults) |
-| `path` | none | file for `boozmn`, `wout` and `vmec` |
+| `path` | none | file for `boozmn`, `wout` and `vmec` (required for them) |
 | `mboz`, `nboz` | `8`, `8` | Boozer resolution for `wout` and `vmec` |
 | `surfaces` | `[0.1, ..., 0.9]` | surfaces `s` for `wout` and `vmec` |
 | `ns` | none | `vmec` only: one stage at `ns` surfaces; none runs the input's `NS_ARRAY` ladder |
@@ -113,6 +114,7 @@ The harmonics are every `(m, n)` with `m_min <= m <= m_max` and `n` in the list
 |---|---|---|
 | `density` | `1e19` | ion density in m⁻³ (uniform) |
 | `ion_mass` | `1.0` | ion mass in atomic mass units (a proton is 1.00727647) |
+| `density_profile` | `[1.0]` | polynomial coefficients in `s` that multiply `density` |
 
 ### `[run]`
 
@@ -120,6 +122,7 @@ The harmonics are every `(m, n)` with `m_min <= m <= m_max` and `n` in the list
 |---|---|---|
 | `task` | `"continuum"` | `"continuum"` or `"eigenmodes"` |
 | `output` | `"outputs"` | results folder |
-| `ntheta`, `nzeta` | `32`, `32` | angle grid for the surface averages |
+| `ntheta`, `nzeta` | none, none | angle grid for the surface averages; none takes the default of {func}`fax.continuum` |
 | `target_khz` | `0.0` | `eigenmodes`: shift-invert target; `0` solves densely for all modes |
 | `count` | `8` | `eigenmodes`: number of modes kept |
+| `parity` | none | basis of {func}`fax.continuum` and {func}`fax.eigenmodes`: none takes both signs of every harmonic, `"single"` the list as given, `1` or `-1` one sector |
