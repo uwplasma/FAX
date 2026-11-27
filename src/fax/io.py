@@ -8,7 +8,7 @@ A case file has four tables; every key is optional and takes the default shown (
     [plasma]    density = 1e19 (ions/m^3), ion_mass = 1.0 (amu), density_profile = [1.0] (polynomial in s)
     [run]       task = "continuum" | "eigenmodes", output = "outputs", ntheta = none, nzeta = none (none: the API
                 default grid), target_khz = 0 (0: all modes), count = 8, parity = none
-                (none: both signs of every harmonic) | "single" (the list as given) | 1 | -1
+                (none or "auto": both signs of every harmonic) | "single" (the list as given) | 1 | -1
 
 A scalar is accepted where a list is expected. The full reference: docs/getting-started.md, "TOML reference".
 """
@@ -71,9 +71,9 @@ def load(case: str | Path | dict[str, Any]) -> dict[str, dict[str, Any]]:
             if default is not None and (not isinstance(value, kind) or isinstance(value, bool) != isinstance(default, bool)):
                 raise ValueError(f"[{table}] {key} must be {type(default).__name__}, got {value!r}")
             config[table][key] = value
-    parity = config["run"]["parity"]
+    parity = config["run"]["parity"] = None if config["run"]["parity"] == "auto" else config["run"]["parity"]
     if parity not in (None, "single") and (type(parity) is not int or parity not in (1, -1)):
-        raise ValueError(f'[run] parity must be "single", 1 or -1, got {parity!r}')
+        raise ValueError(f'[run] parity must be "auto", "single", 1 or -1, got {parity!r}')
     for table, key in (("geometry", "path"), ("run", "output")):
         if config[table][key] is not None:
             config[table][key] = str((root / Path(config[table][key]).expanduser()).resolve())

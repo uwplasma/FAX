@@ -125,4 +125,4 @@ The harmonics are every `(m, n)` with `m_min <= m <= m_max` and `n` in the list
 | `ntheta`, `nzeta` | none, none | angle grid for the surface averages; none takes the default of {func}`fax.continuum` |
 | `target_khz` | `0.0` | `eigenmodes`: shift-invert target; `0` solves densely for all modes |
 | `count` | `8` | `eigenmodes`: number of modes kept |
-| `parity` | none | basis of {func}`fax.continuum` and {func}`fax.eigenmodes`: none takes both signs of every harmonic, `"single"` the list as given, `1` or `-1` one sector |
+| `parity` | none | basis of {func}`fax.continuum` and {func}`fax.eigenmodes`: none or `"auto"` takes both signs of every harmonic, `"single"` the list as given, `1` or `-1` one sector |
