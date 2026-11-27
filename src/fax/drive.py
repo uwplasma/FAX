@@ -35,12 +35,12 @@ inversion ``kappa / (kappa^2 + guard^2)``, the Gauss-Legendre ``nodes`` and the 
 distribution (``FastIons.birth_width``); gamma converges as each goes to zero (tests).
 
 Trapped and precessing particles are omitted (no bounce-averaged precession resonance).
-``n > 0`` with a peaked density drives (``iota psi' > 0``).
+A peaked density drives for ``n iota psi' < 0``: ``n > 0`` in :func:`fax.circular_torus`, where ``psi' < 0``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any
 
@@ -59,18 +59,19 @@ E = 1.602176634e-19
 class FastIons:
     """Isotropic fast ions: ``density`` (m^-3, scalar or profile on ``s``), energies in eV.
 
-    ``kind="maxwellian"`` uses ``temperature_ev``; ``kind="slowing_down"`` uses
+    ``kind="maxwellian"`` uses ``temperature_ev`` (scalar or profile on ``s``); ``kind="slowing_down"`` uses
     ``F ~ 1/(v^3 + v_c^3)`` below ``birth_ev`` with ``critical_ev``. The birth edge is smoothed
     (``erfc`` over ``birth_width`` = 2% of ``v_b``) and ``dF/dE`` includes the smoothed edge, so ``F`` is normalized
     to ``int F d^3v = 1`` with the smoothed edge and the edge drive is differentiable. Any other
-    ``kind`` raises ``ValueError``.
+    ``kind`` raises ``ValueError``. ``mass_amu`` is the nuclear mass (default the deuteron, CODATA 2018) and ``charge`` the
+    charge number, which must not be zero.
     """
 
     density: Any = 1.0e17
     temperature_ev: Any = 100.0e3
     birth_ev: Any = 3.5e6
     critical_ev: Any = 0.5e6
-    mass_amu: Any = 2.01410178
+    mass_amu: Any = 2.013553212
     charge: Any = 1.0
     birth_width: Any = 0.02
     kind: str = "maxwellian"
@@ -82,6 +83,9 @@ class FastIons:
             v = getattr(self, name)  # pytree rebuilds may hold None or axis specs: only numbers are checked
             ok = not isinstance(v, (int, float, np.ndarray, jax.Array)) or (jnp.isfinite(v) & (v > 0))
             check(ok, f"FastIons.{name} must be positive and finite")
+        check(
+            not isinstance(self.charge, (int, float, np.ndarray, jax.Array)) or jnp.all(self.charge != 0), "FastIons.charge must not be 0"
+        )
 
 
 jax.tree_util.register_dataclass(
@@ -115,7 +119,11 @@ def growth_rate(
     and ``k = n + k' nfp``, ``|k'| <= helical``, are summed. An axisymmetric case with
     ``helical = 0`` is exact with ``nzeta = 1``. ``resolved=True`` returns the resonances
     ``(j, k)`` and the growth rate of each instead of their sum. ``boundary`` and ``guard`` are the passing-boundary and
-    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2).
+    small-divisor regularizations described in the module docstring (defaults 0 and 1e-2). ``guard = 0`` is the small-divisor
+    limit, which near a rational surface can differ from a small ``guard`` by a large factor; it raises ``ValueError`` when a
+    nonconstant harmonic of the grid has ``iota k_theta + k_zeta = 0`` exactly. The check is a property of the grid, so it also
+    fires for an axisymmetric field sampled with ``nzeta > 1`` (use ``nzeta = 1``); under ``jit`` it is skipped and such a case
+    returns NaN.
     """
     hm = np.asarray(harmonics, dtype=float)
     pairs = np.array(
@@ -126,6 +134,9 @@ def growth_rate(
         ],
         dtype=float,
     )
+    kt, kz = np.meshgrid(*(np.fft.fftfreq(k, 1.0 / k) for k in (ntheta, nzeta)), indexing="ij")
+    rational = jnp.any((jnp.asarray(geo.iota)[:, None, None] * kt + kz == 0) & ((kt != 0) | (kz != 0)))
+    check((guard != 0) | ~rational, "guard = 0 on a rational surface: iota k_theta + k_zeta = 0 for a nonconstant harmonic of the grid")
     gamma = _growth_rate(omega, jnp.asarray(phi), geo, hm, ions, mass_density, pairs, boundary, guard, nodes, ntheta, nzeta)
     return (pairs.astype(int), gamma) if resolved else jnp.sum(gamma)
 
@@ -155,20 +166,21 @@ def _growth_rate(
     e = jnp.exp(1j * (m * g.theta - n * g.zeta)) / (g.B**3 * g.sqrt_g)[:, None]  # (S, H, T, Z)
     kernel = (col(geo.I) * Bz - col(geo.G) * Bt)[:, None] * e * _d_ds(phi, geo.s)[..., None, None]
     kernel = kernel + 1j * Bs[:, None] * (col(geo.G)[:, None] * m + col(geo.I)[:, None] * n) * e * phi[..., None, None]
-    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max is the exact sample maximum, so
+    # passing pitches lam = mu/E in [0, 1/B_max), Gauss-Legendre; B_max from the samples (see _bmax), so
     # duplicated toroidal samples change nothing (a log-sum-exp bound shifts with the sample count)
     x, wx = (jnp.asarray(z) for z in np.polynomial.legendre.leggauss(nodes))
-    bmax = jnp.max(g.B, axis=(1, 2))[:, None]
+    bmax = _bmax(g.B)[:, None]
     lam = 0.5 * (x + 1.0) * (1.0 - boundary) / bmax  # (S, L)
     xi = jnp.sqrt(1.0 - lam[..., None, None] * g.B[:, None])  # (S, L, T, Z)
     h = 1.0 / (xi * g.B[:, None])
     hbar = jnp.mean(h, axis=(2, 3))
     kt, kz = (jnp.fft.fftfreq(k, 1.0 / k)[:, None] for k in (ntheta, nzeta))
     kappa = geo.iota[:, None, None, None] * kt + kz.T  # (iota d_theta + d_zeta) -> i kappa
-    chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2)))
+    gauge = (kt == 0) & (kz.T == 0)  # chi is defined up to a constant: its mean is set to zero
+    chi = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(h / hbar[..., None, None] - 1.0) * -1j * kappa / (kappa**2 + guard**2 + gauge)))
     weight = 0.5 * (1.0 + xi**2) * h / hbar[..., None, None] * jnp.sum(kernel, 1)[:, None]  # (S, L, T, Z): C = sum_h C_h, phase is h-free
     omega_hat = 1.0 / (jnp.abs(D)[:, None] * hbar)  # omega_zeta / v
-    dens = jnp.asarray(ions.density) * jnp.ones_like(geo.s)
+    dens, temp = (jnp.broadcast_to(jnp.asarray(a, float).reshape(-1, 1), (len(geo.s), 1)) for a in (ions.density, ions.temperature_ev))
 
     def resonance(jk: jax.Array) -> jax.Array:
         j, k = jk[0], jk[1]
@@ -176,9 +188,9 @@ def _growth_rate(
         C = jnp.mean(weight * jnp.exp(-1j * (kap[..., None, None] * chi + j * g.theta - k * g.zeta)), axis=(-2, -1))  # (S, L)
         rate = jnp.maximum(jnp.abs(kap) * omega_hat, 1e-12)
         v = omega / rate
-        dfde, f = _distribution(v, ions)
-        star = j * _d_ds(dens[:, None], geo.s) / (omega * ions.charge * E * psi[:, None])
-        q = (dens[:, None] * dfde + star * f) * jnp.abs(C) ** 2
+        (dfde, f), (_, f_t) = jax.jvp(lambda t: _distribution(v, replace(ions, temperature_ev=t)), (temp,), (_d_ds(temp, geo.s),))
+        star = j * (_d_ds(dens, geo.s) * f + dens * f_t) / (omega * ions.charge * E * psi[:, None])  # d_s F0 at fixed E: n' f + n T' df/dT
+        q = (dens * dfde + star) * jnp.abs(C) ** 2
         return v**6 * q / (rate * omega_hat)
 
     power = jnp.abs(psi) * jnp.sum(jax.lax.map(jax.checkpoint(resonance), pairs) * wx * (1.0 - boundary) / (2 * bmax), axis=-1)  # (P, S)
@@ -189,13 +201,38 @@ def _growth_rate(
 
 
 def ion_landau_damping(
-    omega: Any, phi: Any, geo: Geometry, harmonics: Any, temperature_ev: Any, density: Any, *, mass_amu: Any = 1.00727647, **options: Any
+    omega: Any,
+    phi: Any,
+    geo: Geometry,
+    harmonics: Any,
+    temperature_ev: Any,
+    density: Any,
+    *,
+    mass_amu: Any = 1.00727647,
+    charge: Any = 1.0,
+    **options: Any,
 ) -> jax.Array:
     """Bulk-ion Landau damping rate (1/s, positive damps): the same power transfer for a flat
-    thermal Maxwellian (Fu & Van Dam 1989; Betti & Freidberg 1992). Electron Landau damping
-    needs ``E_par`` and is not included. ``options`` go to :func:`growth_rate`."""
-    bulk = FastIons(density=density, temperature_ev=temperature_ev, mass_amu=mass_amu)
+    thermal Maxwellian (Fu & Van Dam 1989; Betti & Freidberg 1992) of ions of nuclear mass ``mass_amu`` (default the proton)
+    and charge number ``charge``. Electron Landau damping needs ``E_par`` and is not included. ``options`` go to
+    :func:`growth_rate`."""
+    bulk = FastIons(density=density, temperature_ev=temperature_ev, mass_amu=mass_amu, charge=charge)
     return -growth_rate(omega, phi, geo, harmonics, bulk, density * mass_amu * AMU, **options)
+
+
+def _bmax(B: jax.Array) -> jax.Array:
+    """``max |B|`` per surface of ``B`` (S, T, Z): the maximum of the quadratic fitted, with its cross term, on the periodic 3 x 3
+    stencil around the largest sample ``b``, ``b + g.M^-1 g / 2`` (``g`` the centred gradient, ``-M`` the Hessian in grid steps). It
+    is the 1-D parabola of the other angle where one angle is flat (``nzeta = 1``) and ``b`` where ``M`` is not positive definite,
+    so never below the largest sample. Error O(h^4) against O(h^2) for ``b``, also for a helical ridge."""
+    i = jnp.argmax(B.reshape(len(B), -1), 1)
+    at = lambda dt, dz: jnp.roll(B, (-dt, -dz), (1, 2)).reshape(len(B), -1)[jnp.arange(len(B)), i]  # B at (theta + dt, zeta + dz)
+    b, gt, gz = at(0, 0), (at(1, 0) - at(-1, 0)) / 2, (at(0, 1) - at(0, -1)) / 2
+    mt, mz, mtz = 2 * b - at(1, 0) - at(-1, 0), 2 * b - at(0, 1) - at(0, -1), (at(1, -1) + at(-1, 1) - at(1, 1) - at(-1, -1)) / 4
+    det = mt * mz - mtz**2
+    two = (mz * gt**2 - 2 * mtz * gt * gz + mt * gz**2) / (2 * jnp.where(det > 0, det, 1.0))
+    one = gt**2 / (2 * mt + (mt == 0)) + gz**2 / (2 * mz + (mz == 0))  # one angle flat: its terms vanish
+    return b + jnp.where(det > 0, two, jnp.where((mtz == 0) & (mt * mz == 0), one, 0.0))
 
 
 def _distribution(v: jax.Array, ions: FastIons) -> tuple[jax.Array, jax.Array]:

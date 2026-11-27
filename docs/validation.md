@@ -16,8 +16,8 @@ gate is not met or not yet run. The numbers behind each row are in the detailed 
 
 | Area | Status | Notes |
 |---|---|---|
-| Continuum: uniform field, quadrature, STELLGAP CTOK, gap formulas | pass | CTOK mean 6.3e-3, p95 6.6e-3 |
-| Global operator: AE3D CTOK modes, real-space quadrature, manufactured solution, uniform-field continuum | pass | 6 modes within 1.4% |
+| Continuum: uniform field, quadrature, STELLGAP CTOK, gap formulas | pass | CTOK mean 4.2e-3, max 7.0e-3 |
+| Global operator: AE3D CTOK modes, real-space quadrature, manufactured solution, uniform-field continuum | pass | 6 modes within 0.19-1.35% in frequency, 2 of them in frequency only |
 | AE3D CTOK TAE (337.9 kHz) | open | not reproduced; three $\iota'$ terms of AE3D v31's bending blocks differ from the energy, so the cause is unresolved |
 | Precise QA of Knyazev et al. 2026 | pass in part | continuum 3.0e-3; the archived global mode is within 2% in energy at 24-64 harmonics, with no single-mode match (overlap 0.18) |
 | Könies 2018 ITPA TAE frequency and drive | pass | 4.0610e5 rad/s; growth rates pinned to 1e-3 |
@@ -33,10 +33,10 @@ gate is not met or not yet run. The numbers behind each row are in the detailed 
 |---|---|---|
 | Uniform-field continuum, $\omega = \lvert n - m\iota\rvert v_A/R$ | `test_uniform_field_continuum_is_k_parallel_v_alfven` | exact to 1e-9 |
 | Angle quadrature converged, $K$, $M$ Hermitian | `test_matrices_are_hermitian_and_resolution_converged` | 32² vs 64² to 1e-9 |
-| STELLGAP CTOK continuum | `test_stellgap_ctok_parity` | mean 6.3e-3, p95 6.6e-3 (gate 7e-3) |
+| STELLGAP CTOK continuum | `test_stellgap_ctok_parity` | mean 4.2e-3, max 7.0e-3 (gates 5e-3, 1e-2) |
 | Gap formulas | `test_gaps_and_gap_location` | TAE $\iota = 2n/(2m+1)$, MAE $\iota = (2n - N_{fp})/2m$ |
 | Uniform-field global spectrum is a continuum | `test_uniform_field_spectrum_is_a_continuum` | edges within $0.5/N$; mode width ∝ $1/N$ (N = 40, 160) |
-| AE3D CTOK global modes | `test_ae3d_ctok_parity` | 6 modes within 1.4%, overlap > 0.9 |
+| AE3D CTOK global modes | `test_ae3d_ctok_parity`, `test_ae3d_ctok_archive_keeps_the_sign_and_symmetrizes_both_matrices` | per mode: frequency, nodal and inertia-norm cosines, Rayleigh quotient (table below); 6 modes within 0.19-1.35%, nodal cosine > 0.90, inertia-norm cosine 0.37 and 0.08 for 738.23 and 741.21 kHz |
 | AE3D CTOK TAE (337.9 kHz) | `test_ae3d_v31_blocks_and_energy_on_identical_inputs` | not reproduced: three $\iota'$ terms of AE3D v31's bending blocks differ from the energy; pinned block comparison below |
 | Independent 3-D spectrum, precise QA of Knyazev et al. 2026 (STELLGAP continuum, AE3D gap band) | `test_stellgap_continuum_parity`, `test_ae3d_gap_band_in_the_sine_basis` | continuum 3.0e-3 mean (gate 4e-3); archived global mode within 2% in energy at 24-64 harmonics, 5.1% at AE3D's 162; no single-mode match (overlap 0.18) |
 | Exact sheared 3-D manufactured solution (benchmark of uwplasma/fax#9) | `test_manufactured_solution_and_regular_axis_interpolation` | nodal error 9e-3, 3.1e-3, 8.9e-4 at N = 16, 32, 64 (→ second order) |
@@ -80,8 +80,14 @@ $|n - m\iota|\,v_A/R_0$ to 1e-9.
 
 **STELLGAP CTOK.** The public STELLGAP test problem (circular tokamak,
 `boozmn_ctok.nc` with $n_s = 101$, $n = 2$, $m = 0..12$, deuterium at
-10¹⁹ m⁻³), the STELLGAP output vendored in `tests/data`. Relative error of the
-13 branches per surface on 97 surfaces: mean 6.3e-3, 95th percentile 6.6e-3.
+10¹⁹ m⁻³). The packet's `boozmn` file lacks the outer half surface
+(`read_boozmn` warns), and the STELLGAP output of the packet was built from a
+metric that averages it with zeros: FAX differs from it by 5.2% at $s = 0.965$
+and 16.4% at $s = 0.975$. Against STELLGAP rerun with that surface restored
+from the packet's `wout` (`tests/data/PROVENANCE.md`), the relative error of the
+13 branches per surface on 97 surfaces is: mean 4.2e-3, 95th percentile
+6.7e-3, maximum 7.0e-3 at $s = 0.975$. STELLGAP takes 1.67e-27 kg per proton,
+the test 2 × 1.00727647 u for deuterium.
 STELLGAP labels its full-mesh surface $k$ as $k/(n_s - 1)$ instead of
 $(k - 1)/(n_s - 1)$ (`rho = nsurf/nsurf_max` in `stellgap_serial_ver5.f`), so
 the test shifts its labels by one cell; a scan of the offset has its minimum
@@ -193,10 +199,32 @@ $1/N$ ($N = 40$ and $160$). No discrete mode appears outside the continuum.
 **AE3D CTOK.** The same `boozmn` file averaged to AE3D's 99-point full mesh
 with AE3D's edge extrapolation, $n = 2$, $m = 0..12$. The matrix leading
 blocks and the operator continuum agree within 1%. Six global modes, matched
-to AE3D's eigenvectors by overlap > 0.9, agree within 1.4%:
+to AE3D's eigenvectors by nodal cosine above 0.90, agree in frequency within 0.185 to 1.346% (gate 1.5%). The table gives,
+for each AE3D mode, the FAX mode of largest nodal cosine $|u^Tv|/(\|u\|\|v\|)$, the inertia-norm cosine
+$|u^TGv|/\sqrt{(u^TGu)(v^TGv)}$ with FAX's $G$ at that mode, the FAX mode of largest inertia-norm cosine, and the Rayleigh
+quotient of the AE3D vector on FAX's $F$ and $G$ (32 × 4 angles, all 1287 FAX modes):
 
-AE3D's 343.6, 384.1, 685.6, 703.3, 738.2 and 741.2 kHz modes are all
-reproduced within 1.4% (gate 1.5%).
+| AE3D (kHz) | FAX, nodal match (kHz) | Difference | Nodal cosine | Inertia-norm cosine there | Best inertia-norm match (kHz), cosine | Rayleigh quotient (kHz) | Reading |
+|---|---|---|---|---|---|---|---|
+| 337.917 | 272.770 | −19.279% | 0.9066 | 0.2293 | 350.360, 0.4417 | 329.330 | unmatched |
+| 343.649 | 344.284 | +0.185% | 0.9077 | 0.7955 | 344.284, 0.7955 | 346.562 | matched |
+| 384.132 | 388.229 | +1.067% | 0.9631 | 0.9254 | 388.229, 0.9254 | 388.837 | matched |
+| 685.590 | 694.822 | +1.346% | 0.9177 | 0.8321 | 694.822, 0.8321 | 693.596 | matched |
+| 703.302 | 711.719 | +1.197% | 0.9465 | 0.9183 | 711.719, 0.9183 | 711.146 | matched |
+| 738.229 | 744.995 | +0.917% | 0.9173 | 0.3709 | 740.083, 0.6590 | 748.712 | frequency only |
+| 741.207 | 746.236 | +0.678% | 0.9005 | 0.0766 | 744.486, 0.5108 | 746.307 | frequency only |
+
+A mode is matched in frequency when the nodal cosine exceeds 0.90 and the frequencies differ by less than 1.5%, and in shape
+when the inertia-norm cosine at that match exceeds 0.5. The nodal cosine weights every node and harmonic equally; the inertia
+norm weights them by $\mu_0\rho|\nabla\Phi|^2/B^2$, the energy of the mode. The test asserts the numbers of plan step 1.7 to their printed digits (0.01 kHz, 1e-3) and the other entries, which are FAX's own output from an earlier independent run, as regressions to 1e-3 kHz and 1e-4 (a relative perturbation of 1e-12 of the matrices moves them by less than 4e-9). With the $J_\parallel$ and pressure terms on (`finite_beta=True`) the 337.92 kHz row is nodal 0.720 at 267.57 kHz, inertia-norm 0.537 at 349.06 kHz, Rayleigh quotient 337.11 kHz, and the operator has seven negative $\omega^2$; this is asserted as a regression of FAX, with no independent value to compare (AE3D's own run moves the mode only to 338.18 kHz when its current and pressure terms are off).
+
+The AE3D values come from the answer packet. `egn_values.dat` stores $\sqrt{f^2}$ for $f^2 \ge 0$ and $f^2$ itself for the
+five negative roots of the 1287, so the fixture keeps the signed $f^2$ of `egn_mode_asci.dat`. The exported matrices
+reproduce those 1287 values to 2.1e-5 relative, the five negative ones included, when both are symmetrized,
+$(A + A^T)/2$ and $(B + B^T)/2$; without the symmetrization of $A$ (relative asymmetry 1.19e-6) the spectrum is complex and off
+by 1.3%. AE3D v31 (`ae_solve_version31.f` line 1176) writes the symmetrization of the inertia matrix with the same index twice,
+`0.5*(mat_inertia(i,j) + mat_inertia(i,j))`, which leaves it unsymmetrized; the exported $B$ is symmetric, so this has no
+effect on CTOK.
 
 **Independent operator and the QA archive (uwplasma/fax#9).** E. Lascas Neto
 built a separate physical-potential assembly of the same weak form (Gauss
