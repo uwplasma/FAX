@@ -34,7 +34,8 @@ One call summarizes a geometry: {func}`fax.summary` splits the harmonics into th
 You will learn how to read a continuum from a `boozmn` file and what the gaps in it mean (sections 2 and 3 of {doc}`theory`).
 `examples/ctok_boozmn.py` runs both CTOK cases below through `fax.run`, repeats them with the Python API (the two agree exactly); `RESEARCH = True` adds the dense solve, the file's full mesh and the command line. The input
 `examples/ctok_continuum.toml` is the STELLGAP CTOK test problem: a circular tokamak, `n = 2`, `m = 0..12`, deuterium at
-10¹⁹ m⁻³.
+10¹⁹ m⁻³. The shipped `tests/data/boozmn_ctok.nc` lacks its outer half surface (coefficients stop at 100 of 101), and
+`read_boozmn` warns that quantities there are not available from it.
 
 ```{literalinclude} ../examples/ctok_continuum.toml
 ```

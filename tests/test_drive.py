@@ -40,8 +40,8 @@ def test_fu_van_dam_maxwellian_scaling():
     resonance at ``v = v_par / xi``, ``int_0^1 2 xi dxi xi^-8 (1 + xi^2)^2 exp(-x^2 / xi^2) = 2 (1 + 2 x^2 + 2 x^4) exp(-x^2) / x^6``,
     psi' = B0 a^2 / 2, and ``W = int rho |grad phi|^2 / (2 B0^2) dV``. The prefactor ``gamma = pi^4 m_f^2 P / W`` (``P`` the radial
     integral) is that of the module docstring, fixed by the Koenies gate below, not derived here. Approximations: O(eps) toroidal
-    corrections and the v_A / 3 resonances (excluded, they are ~exp(-9 x^2))."""
-    R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, 2.01410178 * AMU, 1e6, 1.602176634e-19
+    corrections and the v_A / 3 resonances (other j, excluded; their Maxwellian factor is exp(-x^2 / 9) with x = v_A / v_th)."""
+    R0, a, B0, eps, io, m_f, vpar, e = 1e4, 1.0, 3.0, 1e-4, 1 / 1.75, fax.FastIons().mass_amu * AMU, 1e6, 1.602176634e-19
     rho = float(RHO)
     geo = fax.circular_torus(s=S, major_radius=R0, minor_radius=a, B0=B0, iota=io, epsilon_B=eps)
     r, r0, w = np.sqrt(np.asarray(S)), 0.5, 0.1
@@ -99,12 +99,17 @@ def test_koenies_2018_tae_growth_rates():
     large-aspect-ratio model gave 4.4, 16.6, 33.1, 65 x10^3/s and the Boozer form with n/iota in the
     gradient term 4.33, 16.52, 32.94, 64.85."""
     gam = np.array([tae_gamma(t) for t in (100.0, 200.0, 300.0, 400.0)])
+    # regression values of this code at the atomic deuterium mass; the nuclear default moves them by 0.4e-4 to 2.5e-4
     np.testing.assert_allclose(gam, [4.290e3, 16.39e3, 32.72e3, 64.48e3], rtol=1e-3)
     np.testing.assert_allclose(gam, [4.4e3, 16.6e3, 33.1e3, 65e3], rtol=0.04)  # O(1/n) labelling change of the gradient term, ~1.5%
     assert 0.8 * 40e3 < gam[2] < 1.2 * 40e3
 
 
 def test_drive_sign_and_flat_profile():
+    """The radial term ``j dF/ds / (omega Z e psi')`` with ``j ~ n / iota`` drives a peaked profile for ``n iota psi' < 0``: in
+    ``circular_torus`` ``psi' < 0`` (the left-handed Boozer angles of section 7 of the plan), so ``n > 0`` drives there."""
+    g = fax.geometry.surface_grid(ITPA, 16, 1)
+    assert (jnp.mean(g.sqrt_g * g.B**2, axis=(1, 2)) / (ITPA.G + ITPA.iota * ITPA.I) < 0).all()  # psi' as in the drive kernel
     flat = fax.FastIons(density=1e17, temperature_ev=200e3)
     for ions in (flat, fax.FastIons(density=1e17, kind="slowing_down")):
         g = [fax.growth_rate(4e5, TAE, ITPA, ((10 * n // 6, n), (11 * n // 6, n)), ions, RHO, **AXI) for n in (6, -6)]
@@ -410,3 +415,181 @@ def test_a_pair_of_sector_modes_is_driven_as_a_two_mode_ledger():
     far = jnp.array([w, 1.2 * w])
     diag = [rate(far[0], x[0]), rate(far[1], x[1])]
     np.testing.assert_allclose(ledger(far), diag, rtol=1e-6)
+
+
+# --- the kit case of the radial derivative (plan step 1.5): Koenies torus, n = 1e17 (1 - 0.65 s), two Gaussians at s = 1/4 ---
+
+ATOMIC_D = 2.01410178  # atomic deuterium mass (u): the plan's numbers of step 1.5 were measured with it
+
+
+def kit_run(ns, nodes):
+    """``growth_rate`` on ``ns`` surfaces and ``nodes`` pitches of the case of plan step 1.5 (32 theta points, axisymmetric)."""
+    s = (jnp.arange(ns) + 0.5) / ns
+    geo = fax.circular_torus(s=s, major_radius=10.0, minor_radius=1.0, B0=3.0, iota=1 / (1.71 + 0.16 * s), epsilon_B=0.1)
+    phi = jnp.stack([jnp.exp(-(((jnp.sqrt(s) - 0.5) / 0.0425) ** 2) / 2)] * 2, axis=1)
+    return s, lambda ions, **o: fax.growth_rate(4e5, phi, geo, HARM, ions, RHO, **{"nodes": nodes, "ntheta": 32, **AXI, **o})
+
+
+@pytest.mark.parametrize(("ns", "nodes", "ref", "nuclear"), [(32, 32, -3549.327652, -3548.191645), (40, 16, -3598.463681, -3597.311593)])
+def test_temperature_profile_is_differentiated_at_fixed_energy(ns, nodes, ref, nuclear):
+    """``d_s F0 = f_M {n' + n [E/T - 3/2] T'/T}`` at fixed ``E`` (section 7: radial derivatives at fixed E and mu) for
+    ``T = 139 [1 + 0.8 (s - 1/4)]`` keV, ``n = 1e17 (1 - 0.65 s)``. Oracle: the same kernel with a distribution written here whose radial
+    term is the centred difference (h = 1e-5 in s) of ``n(s) f_M(E; T(s))`` at the fixed resonant energy, so the geometry and resonance
+    weights are shared and only ``d_s F0`` is tested. Plan step 1.5 gives -3549.33 (32 x 32) and -3598.46 s^-1 (40 x 16) at the atomic
+    deuterium mass; 1.2.0 returned +2297.92 (T aligned with the pitch axis), a shape error, or +1318.16 / +1336.02 (T' dropped).
+    Tolerance 1e-8: the truncation of the centred difference, h^2 |d^3F/ds^3| / |dF/ds| < 1e-8 for E/T < 10 and T'/T < 0.8.
+    ``nuclear``: the same case at the default nuclear deuteron mass, a regression value of this code."""
+    s, run = kit_run(ns, nodes)
+    dens, temp = (lambda x: 1e17 * (1 - 0.65 * x)), (lambda x: 139e3 * (1 + 0.8 * (x - 0.25)))
+    m, e, col, h = ATOMIC_D * AMU, 1.602176634e-19, s[:, None], 1e-5
+    maxwell = lambda x, v: dens(x) * (m / (2 * jnp.pi * temp(x) * e)) ** 1.5 * jnp.exp(-0.5 * m * v**2 / (temp(x) * e))  # noqa: E731
+
+    def oracle(v, ions):  # (dF/dE per unit density, F) with F = (d_s F0 at fixed E) / n', so that the kernel's n' F is d_s F0
+        return -maxwell(col, v) / (dens(col) * temp(col) * e), (maxwell(col + h, v) - maxwell(col - h, v)) / (2 * h * -0.65e17)
+
+    ions = fax.FastIons(dens(s), temp(s), mass_amu=ATOMIC_D)
+    with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
+        patch.setattr(fax.drive, "_distribution", oracle)
+        reference = float(run(ions))
+    assert reference == pytest.approx(ref, rel=1e-8)
+    for t in (temp(s), temp(s)[:, None]):  # one value per surface, as a vector or a column
+        assert float(run(replace(ions, temperature_ev=t))) == pytest.approx(reference, rel=1e-8)
+    flat = run(replace(ions, temperature_ev=jnp.full(ns, 139e3)))
+    assert flat == pytest.approx(run(replace(ions, temperature_ev=139e3)), rel=1e-12)  # a flat profile is the scalar
+    with pytest.raises(ValueError):
+        run(replace(ions, temperature_ev=temp(s)[:5]))
+    assert float(run(fax.FastIons(dens(s), temp(s)))) == pytest.approx(nuclear, rel=1e-9)
+
+
+def test_zero_guard_sets_the_mean_of_the_orbit_angle_to_zero():
+    """The orbit angle ``chi`` of ``(iota d_theta + d_zeta) chi = h / <h> - 1`` is defined up to a constant: its ``k = 0`` Fourier
+    component is 0/0 at ``guard = 0`` and is set to zero. Plan step 1.5 (b): 8220.74853 s^-1 on 24 surfaces and 8 pitches (Koenies
+    density, 139 keV, atomic deuterium mass), equal to the result at ``guard = 1e-6`` within 1e-13 (the gate of the step; the guard
+    enters at second order). A zero divisor of a nonconstant component (here ``iota = 1/2``, ``(k_theta, k_zeta) = (2, -1)``) has no
+    finite inverse and raises on the host."""
+    s, run = kit_run(24, 8)
+    c0, c1, c2, c3 = 0.49123, 0.298228, 0.198739, 0.521298  # koenies_density on these surfaces
+    ions = fax.FastIons(1.44131e17 * c3 * jnp.exp(-(c2 / c1) * jnp.tanh((jnp.sqrt(s) - c0) / c2)), 139e3, mass_amu=ATOMIC_D)
+    zero = float(run(ions, guard=0.0))
+    assert zero == pytest.approx(8220.74853, rel=1e-9)
+    assert zero == pytest.approx(float(run(ions, guard=1e-6)), rel=1e-13)
+    assert float(run(replace(ions, mass_amu=fax.FastIons().mass_amu), guard=0.0)) == pytest.approx(8220.197188, rel=1e-9)  # regression
+    with pytest.raises(ValueError, match="rational"):
+        drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=0.0)
+    assert jnp.isfinite(drive(helical_torus(0.5 + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=1e-3))
+
+
+def test_species_mass_is_nuclear_and_charge_is_explicit():
+    """Section 7 of the plan: nuclear masses, charge numbers explicit. The default species is the deuteron, 2.013553212 u (CODATA 2018),
+    not the deuterium atom (2.01410178 u, which adds the electron); the bulk ions of ``ion_landau_damping`` are protons, 1.00727647 u.
+    The drift work ``Ze v_d . dE`` does not depend on ``Z`` and the radial term of ``Q F = dF/dE + j dF/ds / (omega Z e psi')`` goes as
+    ``1/Z``, so ``gamma(Z = 2) = (gamma(1) + gamma(-1)) / 2 + (gamma(1) - gamma(-1)) / 4`` (algebraic, to rounding). Zero charge
+    divides by zero and is refused."""
+    assert fax.FastIons().mass_amu == pytest.approx(2.013553212, rel=1e-9)
+    s, run = kit_run(24, 8)
+    g1, gm, g2 = (float(run(fax.FastIons(1e17 * (1 - 0.65 * s), 139e3, charge=z))) for z in (1.0, -1.0, 2.0))
+    assert g2 == pytest.approx((g1 + gm) / 2 + (g1 - gm) / 4, rel=1e-12) and abs(g1 - gm) > 0.1 * abs(g1)
+    with pytest.raises(ValueError, match="charge"):
+        fax.FastIons(charge=0.0)
+    with pytest.raises(ValueError, match="charge"):
+        fax.ion_landau_damping(4e5, TAE, ITPA, HARM, 20e3, 2e19, charge=0, **AXI)
+    bulk = [fax.ion_landau_damping(4e5, TAE, ITPA, HARM, 20e3, 2e19, **AXI, **m) for m in ({}, {"mass_amu": 1.00727647})]
+    assert bulk[0] == bulk[1]  # the bulk ions default to protons
+
+
+def test_passing_boundary_maximum_is_refined_between_samples():
+    """``B = 3 (1 + 0.05 cos(theta - delta))`` on 64 points: the passing boundary ``1 / B_max`` from the largest sample has the
+    one-sided slopes -+7.418e-4 T^-1/rad at the tie ``delta = pi / 64`` (two equal samples). The parabola through the largest sample
+    and its two neighbours leaves out the quartic Taylor term, so ``|B_max - 3.15| < 0.15 dtheta^4 / 24`` T, and its slopes at the
+    tie are those of the three-point formula, ``(a - c)^2 / (8 (2 b - a - c))`` added to the sample ``b``, evaluated here in NumPy
+    (-+8.930e-7 T^-1/rad, 830 times smaller). Tolerance 1e-3 on the slopes: the one-sided differences with h = 1e-6 rad."""
+    theta, tie, h = 2 * np.pi * np.arange(64) / 64, np.pi / 64, 1e-6
+    field = lambda d: 3 * (1 + 0.05 * jnp.cos(jnp.asarray(theta)[None, :, None] - d))  # noqa: E731 - (S, T, Z) = (1, 64, 1)
+
+    def parabola(d):
+        b = 3 * (1 + 0.05 * np.cos(theta - d))
+        i = int(np.argmax(b))
+        a, c = b[i - 1], b[(i + 1) % 64]
+        return 1 / (b[i] + (a - c) ** 2 / (8 * (2 * b[i] - a - c)))
+
+    sides = lambda f: ((f(tie + h) - f(tie)) / h, (f(tie) - f(tie - h)) / h)  # noqa: E731
+    sampled = sides(lambda d: float(1 / jnp.max(field(d))))
+    np.testing.assert_allclose(sampled, [-7.418e-4, 7.418e-4], rtol=1e-3)
+    refined = sides(lambda d: float(1 / fax.drive._bmax(field(d))[0]))
+    np.testing.assert_allclose(refined, sides(parabola), rtol=1e-3)
+    np.testing.assert_allclose(refined, [-8.930e-7, 8.930e-7], rtol=1e-3)
+    assert abs(float(fax.drive._bmax(field(tie))[0]) - 3.15) < 0.15 * (2 * np.pi / 64) ** 4 / 24
+    assert abs(float(jax.grad(lambda d: 1 / fax.drive._bmax(field(d))[0])(tie))) == pytest.approx(8.930e-7, rel=1e-3)
+    wrap = [jax.grad(lambda d: fax.drive._bmax(field(d))[0])(x) for x in (tie, -tie)]  # the tie of samples 63 and 0 wraps
+    assert abs(float(wrap[1])) == pytest.approx(abs(float(wrap[0])), rel=1e-9)
+    flat = jax.value_and_grad(lambda c: fax.drive._bmax(c * jnp.ones((1, 8, 4)))[0])(3.0)  # every sample ties
+    assert flat[0] == 3.0 and flat[1] == pytest.approx(1.0, rel=1e-12)
+
+
+@pytest.mark.parametrize("p", [0.2, 0.37, 0.5])
+def test_passing_boundary_maximum_on_a_helical_ridge(p):
+    """``B = 3 (1 + 0.05 cos(theta - zeta - c))`` has its maximum 3.15 T on a ridge across both grid axes. The largest sample is low
+    by O(h^2) (h the grid spacing); the maximum of the quadratic fitted on the 3 x 3 stencil with its cross term is low by O(h^4)
+    when the ridge keeps its place in the cell (``c = p dtheta``): halving h divides the error by 16 (accepted 12 to 20). Gate of
+    the review: at least 20 times below the sampled error on 32 x 16 and 64 x 32, and for phases c that are not cell fractions."""
+
+    def errors(nt, nz, c):
+        th, ze = np.meshgrid(2 * np.pi * np.arange(nt) / nt, 2 * np.pi * np.arange(nz) / nz, indexing="ij")
+        b = 3 * (1 + 0.05 * jnp.cos(jnp.asarray(th - ze - c)))[None]
+        return float(jnp.max(b)) - 3.15, float(fax.drive._bmax(b)[0]) - 3.15
+
+    (s1, r1), (s2, r2) = (errors(nt, nz, p * 2 * np.pi / nt) for nt, nz in ((32, 16), (64, 32)))
+    assert abs(r1) < abs(s1) / 20 and abs(r2) < abs(s2) / 20 and r1 <= 0 and r2 <= 0
+    assert 12 < r1 / r2 < 20 and 3 < s1 / s2 < 5  # O(h^4) against O(h^2)
+    s, r = errors(32, 16, 1.1 + p)
+    assert abs(r) < abs(s) / 20
+
+
+def test_growth_rate_uses_the_refined_maximum():
+    """``B = B0 (1 - eps sqrt(s) cos(theta - c))`` with ``c = 0.3 dtheta``: the maximum lies between samples, so the passing boundary of
+    ``growth_rate`` moves by the refinement (relative O(eps dtheta^2) ~ 1e-5) and gamma with it."""
+    tok = torus()
+    c = 0.3 * 2 * np.pi / 64
+    rotated = replace(tok, bmnc=tok.bmnc.at[:, 1].multiply(np.cos(c)), bmns=tok.bmns.at[:, 1].set(tok.bmnc[:, 1] * np.sin(c)))
+    run = lambda: drive(rotated, ((10, 6), (11, 6)), helical=0, nzeta=1, ntheta=64)  # noqa: E731
+    with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
+        patch.setattr(fax.drive, "_bmax", lambda b: jnp.max(b, axis=(1, 2)))
+        sampled = float(run())
+    assert abs(float(run()) / sampled - 1) > 1e-7
+
+
+def curved_error(n_s):
+    """Relative error of the kernel against the analytic-derivative oracle on ``n_s`` surfaces (see the test below)."""
+    s, run = kit_run(n_s, 8)
+    col, m, e = s[:, None], fax.FastIons().mass_amu * AMU, 1.602176634e-19
+    dens, ddens = 1e17 * jnp.exp(-3 * col), -3e17 * jnp.exp(-3 * col)
+    temp, dtemp = 139e3 * (1 + 0.8 * (col - 0.25) - 0.6 * (col - 0.25) ** 2), 139e3 * (0.8 - 1.2 * (col - 0.25))
+
+    def oracle(v, ions):  # F = (analytic d_s F0) / (the kernel's n'), so that the kernel's n' F is the analytic d_s F0
+        fm = (m / (2 * jnp.pi * temp * e)) ** 1.5 * jnp.exp(-0.5 * m * v**2 / (temp * e))
+        exact = fm * (ddens + dens * (0.5 * m * v**2 / (temp * e) - 1.5) * dtemp / temp)
+        return -fm / (temp * e), exact / fax.geometry._d_ds(dens, s)
+
+    ions = fax.FastIons(dens[:, 0], temp[:, 0])
+    with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
+        patch.setattr(fax.drive, "_distribution", oracle)
+        reference = float(run(ions))
+    return abs(float(run(ions)) / reference - 1)
+
+
+def test_curved_profiles_converge_to_the_analytic_fixed_energy_derivative():
+    """Curved ``n = 1e17 exp(-3 s)`` and ``T = 139 [1 + 0.8 (s - 1/4) - 0.6 (s - 1/4)^2]`` keV: the oracle is the kernel with the analytic
+    ``d_s F0 = f_M [n' + n (E/T - 3/2) T'/T]``. The kernel takes ``n'`` and ``T'`` by the three-point derivative on the surfaces (second
+    order, ``fax.geometry._d_ds``), so the error falls by 4 from 32 to 64 surfaces (accepted 3 to 5); measured 3.7e-3 on 32."""
+    errs = [curved_error(n_s) for n_s in (32, 64)]
+    assert 3 < errs[0] / errs[1] < 5
+
+
+def test_zero_guard_mask_keeps_the_derivative_at_an_exact_rational_zero():
+    """At ``iota = 1/2`` the harmonic (2, -1) of the grid has ``kappa = 0`` exactly; with ``guard > 0`` its inverse ``kappa / (kappa^2 +
+    guard^2)`` is 0 with slope ``1 / guard^2`` in iota. Only the constant component is masked, so ``jax.grad`` in a uniform iota shift
+    equals the central difference (h = 1e-8, far below guard = 1e-3; tolerance 1e-5). Masking every ``kappa == 0`` would set that
+    slope to ``1 / (guard^2 + 1)``."""
+    f = lambda t: drive(helical_torus(0.5 + t + 0 * S40), ((1, 1), (2, 1)), helical=1, sidebands=2, ntheta=32, nzeta=16, guard=1e-3)  # noqa: E731
+    h = 1e-8
+    assert float(jax.grad(f)(0.0)) == pytest.approx(float((f(h) - f(-h)) / (2 * h)), rel=1e-5)
