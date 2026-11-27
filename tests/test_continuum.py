@@ -1,6 +1,7 @@
 """Continuum gates: analytic uniform-field limit, STELLGAP CTOK parity, gap formulas."""
 
 import functools
+import sys
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -481,6 +482,30 @@ def test_dense_and_targeted_values_and_reverse_derivatives_agree(sine, parity):
     near_f = lambda e: fax.frequency_hz(stellarator(2, e, sine), h, rho, 0, 1, target_hz=target, count=1, **grid)  # noqa: E731
     assert near_f(0.1) == pytest.approx(dense_f(0.1), rel=1e-10)
     assert jax.grad(near_f)(0.1) == pytest.approx(jax.grad(dense_f)(0.1), rel=1e-7)
+
+
+def test_default_angle_grid_is_the_smallest_unaliased_one():
+    """``<f exp(i dm theta)>`` on N points aliases dm with dm - N, so the grid needs N > 2 max|dm| (theory, section 2). The
+    default is the smallest even such grid, at least 32: m = 1..20 on both signs spans 40, so 82 x 32; the same explicit
+    grid gives the same branches, and the 1.2.0 default of 32 is refused."""
+    geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 5), iota=0.4, epsilon_B=0.1), fax.mode_family(0, 20, 1), 3.4e-8
+    np.testing.assert_allclose(fax.continuum(geo, h, rho), fax.continuum(geo, h, rho, 82, 32), rtol=1e-12)
+    for f in (lambda g: fax.continuum(g, h, rho, 32), jax.jit(lambda g: fax.continuum(g, h, rho, 32))):
+        with pytest.raises(ValueError, match="ntheta=32 aliases"):  # also under jax.jit
+            f(geo)
+    modes = fax.eigenmodes(geo, h, rho)
+    np.testing.assert_allclose(modes.omega2, fax.eigenmodes(geo, h, rho, ntheta=82, nzeta=32).omega2, rtol=1e-10)
+
+
+def test_default_toroidal_grid_holds_whole_field_periods(monkeypatch):
+    """The default ``nzeta`` is a multiple of ``nfp``, so the averages run over one field period (``field_period``): at
+    ``nfp = 5`` the 32-point minimum becomes 40, 8 points per period, and the result is that of the explicit 40-point grid."""
+    geo, h, rho = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 5), iota=0.4, epsilon_B=0.1, nfp=5), fax.mode_family(5, 4, 1), 3.4e-8
+    module, seen = sys.modules["fax.continuum"], []
+    sample = module.surface_grid
+    monkeypatch.setattr(module, "surface_grid", lambda g, t, z, p=1: seen.append((t, z, p)) or sample(g, t, z, p))
+    np.testing.assert_allclose(fax.continuum(geo, h, rho), fax.continuum(geo, h, rho, 32, 40), rtol=1e-12)
+    assert seen[0] == (32, 40, 5)
 
 
 def test_continuum_vanishes_at_the_rational_surface_and_families_match_a_full_torus_solve():

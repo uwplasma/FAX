@@ -166,6 +166,7 @@ self-conjugate pencil is solved as one complex problem on both signs, with the s
 Mode `structures` are the coefficients $x$ of the listed harmonics: real for a cosine-sector mode, $-i$ times real for a sine-sector
 mode. `parity=1` or `-1` selects one sector and `parity="single"` the old basis in {func}`fax.continuum`, {func}`fax.eigenmodes` and
 {func}`fax.frequency_hz`; {func}`fax.continuum_matrices` and {func}`fax.global_matrices` assemble exactly the list they are given.
+Both signs double the span of $\Delta m$, so the default angle grid is the smallest unaliased one, at least 32 points.
 
 **Mode families.** In a stellarator with $N_{fp}$ periods, $n$ couples only to
 $n + kN_{fp}$, so a family is a list `n = [n0, n0 + Nfp, n0 - Nfp, ...]` in

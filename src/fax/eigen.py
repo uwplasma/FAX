@@ -38,7 +38,18 @@ import jax.numpy as jnp
 import numpy as np
 import solvax
 
-from .continuum import MU0, angle_mean, block_matrices, check_modes, generalized_eigh, on_rows, parity_basis, scale, spectral_blocks
+from .continuum import (
+    MU0,
+    angle_mean,
+    block_matrices,
+    check_modes,
+    generalized_eigh,
+    grid_size,
+    on_rows,
+    parity_basis,
+    scale,
+    spectral_blocks,
+)
 from .geometry import Geometry, _d_ds, check, field_period, surface_grid, symmetric
 
 
@@ -81,12 +92,13 @@ def global_matrices(
     geo: Geometry,
     harmonics: Any,
     density: Any,
-    ntheta: int = 32,
-    nzeta: int = 32,
+    ntheta: int | None = None,
+    nzeta: int | None = None,
     finite_beta: bool = False,
     parity: int | None = None,
 ) -> tuple[Blocks, Blocks]:
-    """Bending ``F`` and inertia ``G`` (``w^2`` in rad^2/s^2); surfaces must lie strictly inside ``(0, 1)``.
+    """Bending ``F`` and inertia ``G`` (``w^2`` in rad^2/s^2); surfaces must lie strictly inside ``(0, 1)``. ``ntheta`` and
+    ``nzeta`` default to the smallest unaliased grid, at least 32 (:func:`fax.continuum.grid_size`).
 
     ``finite_beta`` (restricted, experimental: no sound or full-MHD claim) adds the Hermitian parts of the ``J_par`` (kink)
     and pressure-curvature terms of ``delta W`` (see :func:`equilibrium_currents` and ``docs/theory.md``, section 4)::
@@ -100,6 +112,7 @@ def global_matrices(
     check_modes(geo, h, density)
     check(jnp.all((geo.s > 0) & (geo.s < 1)), "surfaces must lie strictly inside (0, 1)")
     h, project = parity_basis(geo, h, parity)
+    ntheta, nzeta = grid_size(harmonics, ntheta, nzeta, parity, geo.nfp)
     period = field_period(geo, nzeta)
     F, G = _global_matrices(geo, surface_grid(geo, ntheta, nzeta, period), h, density, finite_beta, period)
     return jax.tree_util.tree_map(project, (F, G)) if symmetric(geo) else (F, G)
