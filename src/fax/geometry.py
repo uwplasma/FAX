@@ -30,8 +30,9 @@ class Geometry:
     I grad(theta) + K grad(psi)``, so the Boozer Jacobian is ``(G + iota I) / B^2``
     and the embedding Jacobian ``psi' (G + iota I) / B^2`` (see :func:`jacobian_check`).
 
-    ``stellsym`` (every asymmetric harmonic exactly zero), ``axisymmetric`` (every ``xn != 0`` harmonic of ``|B|``, ``R``,
-    ``Z`` below 1e-9 of the largest, the rule of main, which tolerates the round-off of a Boozer transform of a tokamak) and
+    ``stellsym`` (every asymmetric harmonic below ``FACT_TOL = 1e-9`` of the largest harmonic of its symmetric table),
+    ``axisymmetric`` (every ``xn != 0`` harmonic of ``|B|``, ``R``, ``Z`` below ``FACT_TOL`` of the largest, the rule of main,
+    which tolerates the round-off of a Boozer transform of a tokamak) and
     ``nfp_periodic`` (every ``xn`` a multiple of ``nfp``) are static fields, not arguments. Each construction computes them
     from the arrays it is given when they are concrete, ``from_arrays`` from its inputs before conversion, so also under
     ``jax.jit``; a fact whose arrays are traced is ``None`` (unknown: complex path, every family coupled, full turn) unless
@@ -69,8 +70,9 @@ class Geometry:
     def from_arrays(cls, nfp: int, **arrays: Any) -> Geometry:
         """Build a geometry (traceable), filling missing asymmetric harmonics with zeros. The facts come from the inputs
         before conversion (an absent array is zero); a fact given by keyword (``axisymmetric=True``, ...) holds where they
-        are traced and raises ``ValueError`` where concrete arrays contradict it, by the exact rules of :class:`Geometry`
-        (``stellsym=True`` with ``bmns = 1e-16`` raises: no rounding tolerance)."""
+        are traced and raises ``ValueError`` where concrete arrays contradict it, by the rules of :class:`Geometry`
+        (``stellsym=True`` with ``bmns = 1e-16 bmnc`` holds; with ``1e-6 bmnc`` it raises). Where it is trusted under trace,
+        :func:`fact_guard` turns the results that depend on it into NaN when the traced arrays break it."""
         stated = {name: bool(arrays.pop(name)) for name in _STATIC[1:] if name in arrays}
         zeros = jnp.zeros_like(jnp.asarray(arrays["bmnc"], dtype=float))
         geo = cls(**{name: jnp.asarray(arrays.get(name, zeros), dtype=float) for name in _ARRAYS}, nfp=int(nfp))
@@ -145,14 +147,44 @@ def _facts(get: Any, nfp: int) -> dict[str, bool]:
         return None if any(isinstance(v, jax.core.Tracer) for v in values) else [np.asarray(v) for v in values if v is not None]
 
     facts = {}
-    if (asym := host("bmns", "rmns", "zmnc", "pmnc", "gmns")) is not None:
-        facts["stellsym"] = not any(np.any(a) for a in asym)
+    tracer = lambda a: isinstance(a, jax.core.Tracer)  # noqa: E731
+    zero = lambda a: a is None or (not tracer(a) and not np.any(np.asarray(a)))  # noqa: E731
+    if all(zero(get(a)) or not (tracer(get(a)) or tracer(get(b))) for a, b in _PAIRS):  # an absent or zero table needs no partner
+        facts["stellsym"] = bool(_breaks("stellsym", lambda k: None if k in dict(_PAIRS) and zero(get(k)) else get(k), np) <= 0)
     if (xn := host("xn")) is not None:
         facts["nfp_periodic"] = not np.any(xn[0] % nfp)
-    if xn is not None and (spectra := host("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")) is not None:
-        top = max(np.abs(a).max(initial=0.0) for a in spectra)
-        facts["axisymmetric"] = all(np.abs(a[..., xn[0] != 0]).max(initial=0.0) <= 1e-9 * top for a in spectra)
+    if xn is not None and host("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc") is not None:
+        facts["axisymmetric"] = bool(_breaks("axisymmetric", get, np) <= 0)
     return facts
+
+
+FACT_TOL = 1e-9
+_PAIRS = (("bmns", "bmnc"), ("rmns", "rmnc"), ("zmnc", "zmns"), ("pmnc", "pmns"), ("gmns", "gmnc"))  # (asymmetric, symmetric)
+
+
+def _breaks(name: str, get: Any, xp: Any) -> Any:
+    """Positive when the arrays break the fact ``name`` by more than ``FACT_TOL`` (``xp`` is ``np`` or ``jnp``). A table whose
+    symmetric part is tiny or absent (``pmns`` absent, say) makes any rounding in its asymmetric part break the fact: a false
+    rejection (NaN under :func:`fact_guard`), never a silent wrong number."""
+    top = lambda a: xp.max(xp.abs(xp.asarray(a, dtype=float)), initial=0.0)  # noqa: E731
+    pairs = [(get(a), get(b)) for a, b in _PAIRS] if name == "stellsym" else None
+    if pairs is not None:
+        return xp.max(xp.stack([top(a) - FACT_TOL * top(0.0 if b is None else b) for a, b in pairs if a is not None] or [-1.0]))
+    spectra = [a for a in (get(k) for k in ("bmnc", "bmns", "rmnc", "rmns", "zmns", "zmnc")) if a is not None]
+    toroidal = xp.asarray(get("xn"), dtype=float) != 0
+    worst = lambda f: xp.max(xp.stack([top(f(a)) for a in spectra]))  # noqa: E731
+    return worst(lambda a: xp.where(toroidal, a, 0.0)) - FACT_TOL * worst(lambda a: a)
+
+
+def fact_guard(geo: Geometry) -> jax.Array | None:
+    """``None`` when every fact of ``geo`` that is ``True`` was computed from concrete arrays; else a scalar, 1 where the
+    traced arrays satisfy the stated facts within ``FACT_TOL`` and NaN where they do not, by which the results that used the
+    facts are multiplied: a wrongly stated fact gives a rejected (NaN) evaluation, value and derivative, not a silent error."""
+    get = lambda key: getattr(geo, key)  # noqa: E731
+    stated = [n for n in ("stellsym", "axisymmetric") if getattr(geo, n) and n not in _facts(get, geo.nfp)]
+    if not stated:
+        return None
+    return jnp.where(jnp.max(jnp.stack([_breaks(n, get, jnp) for n in stated])) <= 0, 1.0, jnp.nan)
 
 
 def _known(geo: Geometry) -> dict[str, bool]:

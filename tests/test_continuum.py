@@ -356,6 +356,39 @@ def test_a_stated_fact_must_agree_with_concrete_arrays():
         fax.Geometry.from_arrays(1, **arrays, axisymmetric=False)
 
 
+def test_symmetry_facts_use_one_tolerance_and_a_wrong_traced_fact_gives_nan():
+    """One rule for every symmetry fact: asymmetric harmonics below 1e-9 of the largest symmetric harmonic of the same table
+    count as zero. Treating such a field as symmetric errs by about 1.3e3 eps^2 (decision memo study_fax_design, part 2),
+    so rounding at 1e-12 is symmetric on the host, for a stated fact and under ``jax.jit``; at 1e-6 the host fact is False,
+    a stated True is refused on the host and gives NaN under trace instead of a silent error."""
+    g = fax.circular_torus(s=jnp.linspace(0.1, 0.9, 3), iota=0.4, epsilon_B=0.1)
+    arrays = {k: getattr(g, k) for k in ("s", "xm", "xn", "bmnc", "rmnc", "zmns", "gmnc", "iota", "G", "I")}
+    h, rho = fax.mode_family(1, 3), 1e-7
+    build = lambda e, **facts: fax.Geometry.from_arrays(1, **arrays, bmns=e * g.bmnc, **facts)  # noqa: E731
+    assert build(1e-12).stellsym and build(1e-12, stellsym=True).stellsym
+    assert not build(1e-6).stellsym
+    with pytest.raises(ValueError, match="stellsym=True contradicts"):
+        build(1e-6, stellsym=True)
+    sector = lambda e: fax.continuum(build(e, stellsym=True, axisymmetric=True), h, rho, 16, 8, parity=1)  # noqa: E731
+    np.testing.assert_allclose(jax.jit(sector)(1e-12), fax.continuum(build(1e-12), h, rho, 16, 8, parity=1), rtol=1e-10)
+    assert np.isnan(np.asarray(jax.jit(sector)(1e-6))).all()
+    assert np.isnan(np.asarray(jax.jit(jax.grad(lambda e: sector(e).sum()))(1e-6)))
+    pad = lambda a, col: jnp.concatenate([a, col[:, None]], 1)  # noqa: E731 - one more harmonic, (m, n) = (1, 1)
+    tilted = lambda e: fax.Geometry.from_arrays(  # noqa: E731 - |B| of the (1, 1) harmonic e bmnc_0: not axisymmetric
+        1,
+        **{
+            **{k: v for k, v in arrays.items() if k not in ("xm", "xn", "bmnc")},
+            **{k: pad(arrays[k], 0 * g.s) for k in ("rmnc", "zmns", "gmnc")},
+        },
+        xm=jnp.append(g.xm, 1.0),
+        xn=jnp.append(g.xn, 1.0),
+        bmnc=pad(g.bmnc, e * g.bmnc[:, 0]),
+        axisymmetric=True,
+    )
+    axi = lambda e: fax.continuum(tilted(e), h, rho, 16, 8, parity=1)  # noqa: E731
+    assert np.isfinite(np.asarray(jax.jit(axi)(1e-12))).all() and np.isnan(np.asarray(jax.jit(axi)(1e-6))).all()
+
+
 def test_one_period_average_is_refused_when_a_toroidal_number_is_not_a_multiple_of_nfp():
     """``nfp = 2`` with an ``n = 1`` harmonic of ``R`` and ``Z``: the field has no half-turn period, so the averages over one
     period drop the ``dn = 1`` couplings. The host refuses the inconsistent geometry; a traced ``xn`` cannot be checked and
