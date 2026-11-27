@@ -300,7 +300,9 @@ def design_frequencies(offsets: Any, design: Design, mode_count: int = 3) -> tup
     return run(design_geometry(offsets, design))
 
 
-def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_count: int = 3, **drive: Any) -> jax.Array:
+def geometry_growth_rates(
+    geo: Geometry, design: Design, ions: FastIons, mode_count: int = 3, cluster: bool = False, **drive: Any
+) -> jax.Array:
     """Fast-ion growth rates (1/s) of the first ``mode_count`` of the ``count`` modes nearest ``target_hz``.
 
     The modes come from the shift-invert solve on the design's FE nodes (differentiated
@@ -309,7 +311,10 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     does not split a tied set (``gap > 1e-8 max|omega^2|``). Modes of cosine and sine sectors are standing waves, driven
     as pairs (:func:`fax.drive.pair_rates`, among the ``count`` modes); the other blocks of
     :func:`fax.continuum.spectral_blocks` give travelling waves (:func:`fax.eigen.travelling`). A basis that holds both
-    kinds is refused.
+    kinds is refused. A pair gives its two rates as a set (the larger at the lower index), so cutting at ``mode_count`` can keep
+    the larger rate of a pair. ``cluster=True`` gives each pair the two eigenvalues of its projected power matrix instead
+    (``top`` at the lower index, ``trace - top`` at the higher): continuous through the exceptional point of the pair, where
+    the rates have a square-root branch point, and ``top`` never below the larger rate; for an optimizer.
     """
     geo, parity = _nodes(geo, design.nodes), design.options.get("parity")
     ev = eigenmodes(geo, design.harmonics, design.density, **design.options)
@@ -318,7 +323,8 @@ def geometry_growth_rates(geo: Geometry, design: Design, ions: FastIons, mode_co
     w, x = jnp.sqrt(ev.omega2), ev.structures
     if all(sectors):
         sine = jnp.sum(x.imag**2, (1, 2)) > jnp.sum(x.real**2, (1, 2))  # a sine-sector structure is -i times real
-        rates = pair_rates(w, x, sine, geo, design.harmonics, ions, design.density, **drive)[:mode_count]
+        p = pair_rates(w, x, sine, geo, design.harmonics, ions, design.density, **drive)
+        rates = (jnp.where(jnp.arange(len(w)) <= p.partner, p.top, p.trace - p.top) if cluster else p.rates)[:mode_count]
     else:
         h, x = travelling(geo, design.harmonics, x, parity)
         rates = jnp.stack([growth_rate(w[i], x[i], geo, h, ions, design.density, **drive) for i in range(mode_count)])
