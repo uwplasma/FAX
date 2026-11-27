@@ -433,52 +433,55 @@ def test_species_mass_is_nuclear_and_charge_is_explicit():
     assert bulk[0] == bulk[1]  # the bulk ions default to protons
 
 
-def test_passing_boundary_maximum_is_refined_between_samples():
-    """``B = 3 (1 + 0.05 cos(theta - delta))`` on 64 points: the passing boundary ``1 / B_max`` from the largest sample has the
-    one-sided slopes -+7.418e-4 T^-1/rad at the tie ``delta = pi / 64`` (two equal samples). The parabola through the largest sample
-    and its two neighbours leaves out the quartic Taylor term, so ``|B_max - 3.15| < 0.15 dtheta^4 / 24`` T, and its slopes at the
-    tie are those of the three-point formula, ``(a - c)^2 / (8 (2 b - a - c))`` added to the sample ``b``, evaluated here in NumPy
-    (-+8.930e-7 T^-1/rad, 830 times smaller). Tolerance 1e-3 on the slopes: the one-sided differences with h = 1e-6 rad."""
-    theta, tie, h = 2 * np.pi * np.arange(64) / 64, np.pi / 64, 1e-6
-    field = lambda d: 3 * (1 + 0.05 * jnp.cos(jnp.asarray(theta)[None, :, None] - d))  # noqa: E731 - (S, T, Z) = (1, 64, 1)
-
-    def parabola(d):
-        b = 3 * (1 + 0.05 * np.cos(theta - d))
-        i = int(np.argmax(b))
-        a, c = b[i - 1], b[(i + 1) % 64]
-        return 1 / (b[i] + (a - c) ** 2 / (8 * (2 * b[i] - a - c)))
-
-    sides = lambda f: ((f(tie + h) - f(tie)) / h, (f(tie) - f(tie - h)) / h)  # noqa: E731
-    sampled = sides(lambda d: float(1 / jnp.max(field(d))))
-    np.testing.assert_allclose(sampled, [-7.418e-4, 7.418e-4], rtol=1e-3)
-    refined = sides(lambda d: float(1 / fax.drive._bmax(field(d))[0]))
-    np.testing.assert_allclose(refined, sides(parabola), rtol=1e-3)
-    np.testing.assert_allclose(refined, [-8.930e-7, 8.930e-7], rtol=1e-3)
-    assert abs(float(fax.drive._bmax(field(tie))[0]) - 3.15) < 0.15 * (2 * np.pi / 64) ** 4 / 24
-    assert abs(float(jax.grad(lambda d: 1 / fax.drive._bmax(field(d))[0])(tie))) == pytest.approx(8.930e-7, rel=1e-3)
-    wrap = [jax.grad(lambda d: fax.drive._bmax(field(d))[0])(x) for x in (tie, -tie)]  # the tie of samples 63 and 0 wraps
-    assert abs(float(wrap[1])) == pytest.approx(abs(float(wrap[0])), rel=1e-9)
-    flat = jax.value_and_grad(lambda c: fax.drive._bmax(c * jnp.ones((1, 8, 4)))[0])(3.0)  # every sample ties
-    assert flat[0] == 3.0 and flat[1] == pytest.approx(1.0, rel=1e-12)
+def _field(c, s, xm, xn, nt, nz):
+    """Samples ``(1, nt, nz)`` on the kernel grid and the harmonics of ``|B| = sum c cos(m t - n z) + s sin(m t - n z)``."""
+    th, ze = np.meshgrid(2 * np.pi * np.arange(nt) / nt, 2 * np.pi * np.arange(nz) / nz, indexing="ij")
+    field = (*(jnp.atleast_2d(jnp.asarray(a, float)) for a in (c, s)), *(jnp.asarray(a, float) for a in (xm, xn)))
+    return fax.geometry.synthesize(*field, jnp.asarray(th), jnp.asarray(ze))[0], field
 
 
 @pytest.mark.parametrize("p", [0.2, 0.37, 0.5])
 def test_passing_boundary_maximum_on_a_helical_ridge(p):
-    """``B = 3 (1 + 0.05 cos(theta - zeta - c))`` has its maximum 3.15 T on a ridge across both grid axes. The largest sample is low
-    by O(h^2) (h the grid spacing); the maximum of the quadratic fitted on the 3 x 3 stencil with its cross term is low by O(h^4)
-    when the ridge keeps its place in the cell (``c = p dtheta``): halving h divides the error by 16 (accepted 12 to 20). Gate of
-    the review: at least 20 times below the sampled error on 32 x 16 and 64 x 32, and for phases c that are not cell fractions."""
+    """``B = 3 (1 + 0.05 cos(theta - zeta - c))`` has its maximum 3.15 T on a ridge across both grid axes, between samples
+    (``c = p dtheta``) and at phases that are not cell fractions. Newton on the Fourier series from the largest sample finds it to
+    rounding (decision memo study_fax_design, part 4: 4e-16 on a quasi-helical field, against 5.1e-5 for the 3 x 3 quadratic fit);
+    tolerance 1e-14 T (50 ulp of 3.15). It is never below the largest sample."""
+    for nt, nz, c in ((32, 16, p * 2 * np.pi / 32), (64, 32, p * 2 * np.pi / 64), (32, 16, 1.1 + p)):
+        b, field = _field([3.0, 0.15 * np.cos(c)], [0.0, 0.15 * np.sin(c)], [0, 1], [0, 1], nt, nz)
+        got = float(fax.drive._bmax(b, field)[0])
+        assert abs(got - 3.15) < 1e-14 and got >= float(jnp.max(b))
 
-    def errors(nt, nz, c):
-        th, ze = np.meshgrid(2 * np.pi * np.arange(nt) / nt, 2 * np.pi * np.arange(nz) / nz, indexing="ij")
-        b = 3 * (1 + 0.05 * jnp.cos(jnp.asarray(th - ze - c)))[None]
-        return float(jnp.max(b)) - 3.15, float(fax.drive._bmax(b)[0]) - 3.15
 
-    (s1, r1), (s2, r2) = (errors(nt, nz, p * 2 * np.pi / nt) for nt, nz in ((32, 16), (64, 32)))
-    assert abs(r1) < abs(s1) / 20 and abs(r2) < abs(s2) / 20 and r1 <= 0 and r2 <= 0
-    assert 12 < r1 / r2 < 20 and 3 < s1 / s2 < 5  # O(h^4) against O(h^2)
-    s, r = errors(32, 16, 1.1 + p)
-    assert abs(r) < abs(s) / 20
+def test_passing_boundary_maximum_is_smooth_under_a_translation():
+    """A quasi-helical |B| (nfp 4, the maximum off the symmetry points) translated by ``d`` in theta over three cells of the 64 x 32
+    grid: the true ``B_max`` does not change, so its derivative is 0. Memo part 4 measured 6.3e-4 T^-1/rad jumps for the quadratic
+    fit and 2.7e-10 for Newton; gate 1e-9 on the value spread and on the derivative (121 points). Flat and zeta-free fields keep
+    the sample and the one-angle Newton step."""
+    m, n = np.array([0, 1, 1, 2, 0]), np.array([0, 4, 0, 4, 4])
+    amp, ph = np.array([1.0, 0.08, 0.02, 0.015, 0.01]), np.array([0.0, 0.3, -0.7, 1.1, 0.4])
+    bmax = lambda d: fax.drive._bmax(*_field(amp * jnp.cos(ph + m * d), amp * jnp.sin(ph + m * d), m, n, 64, 32))[0]  # noqa: E731
+    d = np.linspace(0.0, 3 * 2 * np.pi / 64, 121)
+    values = np.array([float(bmax(x)) for x in d])
+    slopes = np.array([float(jax.grad(bmax)(x)) for x in d])
+    assert np.ptp(values) < 1e-9 and np.abs(slopes).max() < 1e-9
+    flat = jax.value_and_grad(lambda c: fax.drive._bmax(*_field([c], [0.0], [0], [0], 8, 4))[0])(3.0)  # every sample ties
+    assert flat[0] == 3.0 and flat[1] == pytest.approx(1.0, rel=1e-12)
+    axis = fax.drive._bmax(*_field([3.0, 0.15 * np.cos(0.01)], [0.0, 0.15 * np.sin(0.01)], [0, 1], [0, 0], 64, 1))
+    assert abs(float(axis[0]) - 3.15) < 1e-14  # nzeta = 1: no zeta curvature, Newton in theta alone
+    seam = [
+        fax.drive._bmax(*_field([3.0, 0.15 * np.cos(d)], [0.0, 0.15 * np.sin(d)], [0, 1], [0, 0], 64, 1))[0]
+        for d in (np.pi / 64, -np.pi / 64)
+    ]
+    assert abs(float(seam[0] - seam[1])) < 1e-14  # the tie of samples 63 and 0 wraps across the seam
+
+
+def test_passing_boundary_maximum_falls_back_to_the_largest_sample():
+    """Samples whose largest point sits where the series has only positive curvature and a nonzero slope (``B = cos theta``
+    sampled as ``cos(theta - 0.6 pi)``): Newton takes no step and the root is not stationary. The value is then the largest
+    sample (memo study_fax_design, part 4.5: fallback to the sample), not NaN."""
+    b = _field([0.0, np.cos(0.6 * np.pi)], [0.0, np.sin(0.6 * np.pi)], [0, 1], [0, 0], 10, 1)[0]
+    field = _field([0.0, 1.0], [0.0, 0.0], [0, 1], [0, 0], 10, 1)[1]
+    assert float(fax.drive._bmax(b, field)[0]) == float(jnp.max(b))
 
 
 def test_growth_rate_uses_the_refined_maximum():
@@ -489,7 +492,7 @@ def test_growth_rate_uses_the_refined_maximum():
     rotated = replace(tok, bmnc=tok.bmnc.at[:, 1].multiply(np.cos(c)), bmns=tok.bmns.at[:, 1].set(tok.bmnc[:, 1] * np.sin(c)))
     run = lambda: drive(rotated, ((10, 6), (11, 6)), helical=0, nzeta=1, ntheta=64)  # noqa: E731
     with pytest.MonkeyPatch.context() as patch, jax.disable_jit():
-        patch.setattr(fax.drive, "_bmax", lambda b: jnp.max(b, axis=(1, 2)))
+        patch.setattr(fax.drive, "_bmax", lambda b, field: jnp.max(b, axis=(1, 2)))
         sampled = float(run())
     assert abs(float(run()) / sampled - 1) > 1e-7
 
