@@ -197,6 +197,7 @@ def test_documented_transforms_and_failure_behaviour():
         ("[run]\nntheta = 8\nnzeta = 4\n", "aliases the harmonics"),
         (None, "No such file"),
         ("[modes]\nm_max = true\n", "[modes] m_max must be int"),
+        ("[run]\nparity = 2\n", '[run] parity must be "auto", "single", 1 or -1'),
     ],
 )
 def test_cli_input_errors_print_one_line_and_exit_2(tmp_path, capsys, text, message):
@@ -215,6 +216,10 @@ def test_toml_scalars_become_lists_and_the_grid_follows_the_api_default(monkeypa
     monkeypatch.setattr(fax.io, "continuum", lambda *args, **kwargs: seen.update(args=args, kwargs=kwargs) or np.ones((9, 2)))
     fax.run({"modes": {"n": 2, "m_max": 1}}, save=False)
     assert len(seen["args"]) == 3 and seen["kwargs"] == {}  # no grid passed: the API chooses it
+    fax.run({"modes": {"n": 2, "m_max": 1}, "run": {"parity": -1}}, save=False)
+    assert seen["kwargs"] == {"parity": -1}
+    fax.run({"modes": {"n": 2, "m_max": 1}, "run": {"parity": "auto"}}, save=False)
+    assert seen["kwargs"] == {}
 
 
 def test_every_default_is_documented_in_the_docstring_and_the_reference():
